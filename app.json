@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "跑得快",
+    "name": "钟山跑得快",
     "slug": "pao-de-kuai",
-    "version": "1.0.22",
+    "version": "1.0.25",
     "orientation": "landscape",
-    "icon": "./assets/icon.png",
+    "icon": "https://miaoda-edit-image.cdn.bcebos.com/bv4j4s8noge9/IMG-bvkeqp8p4ow0.png",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
@@ -15,7 +15,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "https://miaoda-edit-image.cdn.bcebos.com/bv4j4s8noge9/IMG-bvkeqp8p4ow0.png",
         "backgroundColor": "#ffffff"
       },
       "predictiveBackGestureEnabled": false,
