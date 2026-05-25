@@ -2,7 +2,7 @@
   "expo": {
     "name": "钟山跑得快",
     "slug": "pao-de-kuai",
-    "version": "1.0.25",
+    "version": "1.0.26",
     "orientation": "landscape",
     "icon": "https://miaoda-edit-image.cdn.bcebos.com/bv4j4s8noge9/IMG-bvkeqp8p4ow0.png",
     "userInterfaceStyle": "dark",
@@ -58,12 +58,12 @@
       "typedRoutes": true
     },
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "sdkVersion"
     },
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0,
+      "fallbackToCacheTimeout": 3000,
       "url": "https://u.expo.dev/placeholder-project-id"
     }
   }
