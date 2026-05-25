@@ -64,7 +64,12 @@
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 3000,
-      "url": "https://u.expo.dev/placeholder-project-id"
+      "url": "https://u.expo.dev/77da8df5-b408-41d5-8c80-e2958d2aa18c"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "77da8df5-b408-41d5-8c80-e2958d2aa18c"
+      }
     }
   }
 }
