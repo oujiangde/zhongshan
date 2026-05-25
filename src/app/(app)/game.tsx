@@ -390,13 +390,42 @@ export default function GameScreen() {
     players: [],
   });
 
+  // ── 桌面光晕动画（必须在所有条件 return 之前声明）──
+  const glowOpacity = useSharedValue(0.06);
+  const glowScale = useSharedValue(1);
+  const glowStyle = useAnimatedStyle(() => ({
+    opacity: glowOpacity.value,
+    transform: [{ scale: glowScale.value }],
+  }));
+
   useEffect(() => {
     init();
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
-      if (countdownRef.current) clearInterval(countdownRef.current);
-    };
+      if (countdownRef.current) clearInterval(countdownRef.current);    };
   }, []);
+
+  // 桌面光晕脉冲动画：轮到自己时循环呼吸发光
+  useEffect(() => {
+    const isMyTurnNow = currentSeat === mySeat;
+    if (isMyTurnNow) {
+      glowOpacity.value = withRepeat(
+        withSequence(
+          withTiming(0.28, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.08, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+        ), -1, false,
+      );
+      glowScale.value = withRepeat(
+        withSequence(
+          withTiming(1.06, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1.0, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+        ), -1, false,
+      );
+    } else {
+      glowOpacity.value = withTiming(0.06, { duration: 400 });
+      glowScale.value = withTiming(1, { duration: 400 });
+    }
+  }, [currentSeat, mySeat]);
 
   const init = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -826,33 +855,6 @@ export default function GameScreen() {
   const prevSeat = ((mySeat + 3) % 4) as SeatPosition;
   const prevPlayer = players.find(p => p.seat === prevSeat);
   const showAntiDumpHint = prevPlayer?.handCount === 1;
-
-  // 桌面光晕脉冲动画：轮到自己时循环呼吸发光
-  const glowOpacity = useSharedValue(0.06);
-  const glowScale = useSharedValue(1);
-  useEffect(() => {
-    if (isMyTurn) {
-      glowOpacity.value = withRepeat(
-        withSequence(
-          withTiming(0.28, { duration: 700, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.08, { duration: 700, easing: Easing.inOut(Easing.ease) }),
-        ), -1, false,
-      );
-      glowScale.value = withRepeat(
-        withSequence(
-          withTiming(1.06, { duration: 700, easing: Easing.inOut(Easing.ease) }),
-          withTiming(1.0, { duration: 700, easing: Easing.inOut(Easing.ease) }),
-        ), -1, false,
-      );
-    } else {
-      glowOpacity.value = withTiming(0.06, { duration: 400 });
-      glowScale.value = withTiming(1, { duration: 400 });
-    }
-  }, [isMyTurn]);
-  const glowStyle = useAnimatedStyle(() => ({
-    opacity: glowOpacity.value,
-    transform: [{ scale: glowScale.value }],
-  }));
 
   const getRelativeSeat = (mySeatNum: SeatPosition, offset: number): SeatPosition =>
     ((mySeatNum + offset) % 4) as SeatPosition;
