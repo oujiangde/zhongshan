@@ -133,9 +133,17 @@ export async function countRoomPlayers(roomId: string): Promise<number> {
 // ==========================================
 
 export async function createGameState(roomId: string, state: Record<string, unknown>): Promise<GameStateRow | null> {
+  const currentSeat = typeof state.currentSeat === 'number' ? state.currentSeat : 0;
+  const round = typeof state.round === 'number' ? state.round : 1;
   const { data } = await supabase
     .from('game_states')
-    .insert({ room_id: roomId, state, phase: 'playing' })
+    .insert({
+      room_id: roomId,
+      state,
+      phase: 'playing',
+      current_player_seat: currentSeat,
+      round,
+    })
     .select()
     .maybeSingle();
   return data;
