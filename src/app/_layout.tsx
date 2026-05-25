@@ -1,17 +1,15 @@
 import { Stack } from 'expo-router';
 import { PortalHost } from '@rn-primitives/portal';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { AppState } from 'react-native';
+import { AppState, View, Text } from 'react-native';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import * as Updates from 'expo-updates';
 import { useEffect, useState } from 'react';
 
 import { SessionProvider } from '@/ctx';
-import { checkForUpdate } from '@/utils/checkUpdate';
-import { UpdateModal } from '@/components/UpdateModal';
-import type { AppVersionInfo } from '@/utils/checkUpdate';
 import "../global.css";
 
-// ─── 横屏永久锁定（所有设备、所有时机）────────────────────
+// ─── 横屏永久锁定 ────────────────────────────────────────────
 const lockLandscape = () => {
   ScreenOrientation.lockAsync(
     ScreenOrientation.OrientationLock.LANDSCAPE
@@ -30,45 +28,62 @@ function RootLayoutNav() {
 }
 
 const RootLayout: React.FC = () => {
-  const [updateInfo, setUpdateInfo] = useState<AppVersionInfo | null>(null);
-  const [showUpdate, setShowUpdate] = useState(false);
+  // OTA 更新状态：'idle' | 'checking' | 'downloading' | 'done'
+  const [otaStatus, setOtaStatus] = useState<'idle' | 'checking' | 'downloading' | 'done'>('idle');
 
   useEffect(() => {
-    // 立即锁横屏
+    // 锁横屏
     lockLandscape();
-
-    // 每次 App 从后台回到前台时重新锁（防止系统自动解锁）
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') lockLandscape();
     });
 
-    // 启动时检查版本更新（延迟 2s，等应用完全加载后再弹窗）
-    const timer = setTimeout(async () => {
-      const info = await checkForUpdate();
-      if (info) {
-        setUpdateInfo(info);
-        setShowUpdate(true);
-      }
-    }, 2000);
+    // OTA 静默热更新
+    checkOTA();
 
-    return () => {
-      sub.remove();
-      clearTimeout(timer);
-    };
+    return () => { sub.remove(); };
   }, []);
+
+  const checkOTA = async () => {
+    // 开发模式下跳过（expo-updates 在开发模式不可用）
+    if (__DEV__) return;
+    try {
+      setOtaStatus('checking');
+      const update = await Updates.checkForUpdateAsync();
+      if (update.isAvailable) {
+        setOtaStatus('downloading');
+        await Updates.fetchUpdateAsync();
+        setOtaStatus('done');
+        // 下载完成后立即重载，用户几乎无感知
+        await Updates.reloadAsync();
+      } else {
+        setOtaStatus('idle');
+      }
+    } catch {
+      // 网络异常静默忽略，不影响正常使用
+      setOtaStatus('idle');
+    }
+  };
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SessionProvider>
         <RootLayoutNav />
         <PortalHost />
-        {/* 版本更新弹窗：全局挂载，优先级最高 */}
-        {updateInfo && (
-          <UpdateModal
-            visible={showUpdate}
-            info={updateInfo}
-            onDismiss={() => setShowUpdate(false)}
-          />
+        {/* OTA 下载进度提示（仅下载时显示，极短暂） */}
+        {otaStatus === 'downloading' && (
+          <View style={{
+            position: 'absolute', bottom: 20, alignSelf: 'center',
+            backgroundColor: 'rgba(10,22,60,0.92)',
+            borderRadius: 20, paddingHorizontal: 18, paddingVertical: 8,
+            borderWidth: 1, borderColor: 'rgba(212,175,55,0.4)',
+            flexDirection: 'row', alignItems: 'center', gap: 8,
+          }}>
+            <Text style={{ fontSize: 14 }}>⬇️</Text>
+            <Text style={{ color: '#D4AF37', fontSize: 13, fontWeight: '600' }}>
+              正在更新游戏数据…
+            </Text>
+          </View>
         )}
       </SessionProvider>
     </GestureHandlerRootView>
