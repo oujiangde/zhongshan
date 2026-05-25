@@ -1,0 +1,70 @@
+{
+  "expo": {
+    "name": "跑得快",
+    "slug": "pao-de-kuai",
+    "version": "1.0.22",
+    "orientation": "landscape",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "buildNumber": "1",
+      "bundleIdentifier": "com.miaoda.appbv4j4s8noge9",
+      "requiresFullScreen": true,
+      "orientation": "landscape"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "predictiveBackGestureEnabled": false,
+      "versionCode": 1,
+      "package": "com.miaoda.appbv4j4s8noge9",
+      "orientation": "landscape"
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-asset",
+      "expo-sqlite",
+      "expo-font",
+      "expo-system-ui",
+      "expo-image",
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "LANDSCAPE_LEFT"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "允许跑得快访问相机以拍摄头像",
+          "photosPermission": "允许跑得快访问相册以选择头像"
+        }
+      ],
+      "expo-updates",
+      "expo-secure-store",
+      "expo-web-browser"
+    ],
+    "router": {
+      "root": "src"
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/placeholder-project-id"
+    }
+  }
+}
