@@ -1,12 +1,16 @@
 /**
- * 游戏核心页面 - 横屏4人牌桌（中国风）
+ * 游戏核心页面 - 横屏4人牌桌（精品手游风格）
  * 座位布局：0=底部(自己), 1=左, 2=上, 3=右
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator, Modal } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Image } from 'expo-image';
+import { Image } from 'expo-image';import Animated, {
+  useSharedValue, useAnimatedStyle, withSpring, withTiming,
+  withSequence, withRepeat, Easing,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { supabase } from '@/client/supabase';
 import { getGameState, updateGameState, saveGameHistory, updateBeans, updateGameStats, getRoomPlayers, getProfile } from '@/db/api';
 import {
@@ -17,7 +21,18 @@ import type { Card, Play, SeatPosition, PlayerState } from '@/types/game';
 import type { GameStateRow, RoomPlayer } from '@/types/db';
 
 // ─── 资源 URL ───────────────────────────────────────────────
-const BG_URL = 'https://miaoda-site-img.cdn.bcebos.com/images/baidu_image_search_484d4842-acef-432d-9593-c83f86205324.jpg';
+// 主题色
+const THEME = {
+  bg: '#0d1b3e',          // 深蓝背景
+  bgCard: '#111f4a',      // 卡片背景
+  gold: '#D4AF37',        // 鎏金
+  goldDim: 'rgba(212,175,55,0.3)',
+  red: '#E63946',         // 朱砂红
+  white: '#FFFFFF',
+  dim: '#A09DA6',
+  border: 'rgba(212,175,55,0.25)',
+  tableBg: '#0a1628',     // 出牌桌面
+};
 
 // 花色颜色
 const SUIT_COLORS: Record<string, string> = {
@@ -34,7 +49,7 @@ const RANK_DISPLAY: Record<string, string> = {
 const EMOJIS = ['👍', '😄', '😅', '😮', '🤔', '👏', '💪', '😎'];
 
 // ==========================================
-// 扑克牌组件 — 精品金边风格
+// 扑克牌组件 — 精品金边 + 弹性选中动画
 // ==========================================
 function CardView({
   card,
@@ -53,6 +68,30 @@ function CardView({
   const h = small ? 40 : 66;
   const fs = small ? 10 : 16;
 
+  // 动画共享值
+  const translateY = useSharedValue(0);
+  const scale = useSharedValue(1);
+
+  // selected 变化时触发弹性动画
+  useEffect(() => {
+    if (selected) {
+      // 选中：先快速上弹 + 放大，再弹性稳定
+      translateY.value = withSpring(-18, { damping: 10, stiffness: 260, mass: 0.6 });
+      scale.value = withSequence(
+        withSpring(1.12, { damping: 8, stiffness: 300 }),
+        withSpring(1.05, { damping: 12, stiffness: 200 }),
+      );
+    } else {
+      // 取消：弹回原位
+      translateY.value = withSpring(0, { damping: 12, stiffness: 220 });
+      scale.value = withSpring(1, { damping: 12, stiffness: 220 });
+    }
+  }, [selected]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }, { scale: scale.value }],
+  }));
+
   // 背面：深绿金纹路
   if (faceDown) {
     return (
@@ -63,7 +102,6 @@ function CardView({
         alignItems: 'center', justifyContent: 'center',
         boxShadow: [{ offsetX: 0, offsetY: 2, blurRadius: 5, color: 'rgba(0,0,0,0.7)' }],
       }}>
-        {/* 内框金边 */}
         <View style={{
           position: 'absolute', inset: 3,
           borderRadius: 3, borderWidth: 1,
@@ -79,34 +117,35 @@ function CardView({
   const rank = RANK_DISPLAY[card.rank];
 
   return (
-    <Pressable onPress={onPress}
-      style={{
-        width: w, height: h,
-        backgroundColor: selected ? '#fffce8' : '#ffffff',
-        borderRadius: 6,
-        borderWidth: selected ? 2.5 : 1.5,
-        borderColor: selected ? '#FFD700' : '#d4c070',
-        alignItems: 'center', justifyContent: 'center',
-        transform: [{ translateY: selected ? -16 : 0 }],
-        boxShadow: selected
-          ? [
-            { offsetX: 0, offsetY: 0, blurRadius: 14, color: 'rgba(255,215,0,0.85)' },
-            { offsetX: 0, offsetY: 6, blurRadius: 12, color: 'rgba(0,0,0,0.5)' },
-          ]
-          : [{ offsetX: 0, offsetY: 2, blurRadius: 5, color: 'rgba(0,0,0,0.55)' }],
-      }}>
-      {/* 左上角点数花色 */}
-      <Text style={{
-        position: 'absolute', top: small ? 2 : 3, left: small ? 3 : 4,
-        color, fontSize: small ? 8 : 12, fontWeight: '900', lineHeight: small ? 9 : 13,
-      }}>{rank}</Text>
-      <Text style={{
-        position: 'absolute', top: small ? 10 : 14, left: small ? 3 : 4,
-        color, fontSize: small ? 7 : 10, lineHeight: small ? 8 : 11,
-      }}>{suit}</Text>
-      {/* 中央大花色 */}
-      <Text style={{ color, fontSize: fs, fontWeight: '700' }}>{suit}</Text>
-    </Pressable>
+    <Animated.View style={animStyle}>
+      <Pressable onPress={onPress}
+        style={{
+          width: w, height: h,
+          backgroundColor: selected ? '#fffce8' : '#ffffff',
+          borderRadius: 6,
+          borderWidth: selected ? 2.5 : 1.5,
+          borderColor: selected ? '#FFD700' : '#d4c070',
+          alignItems: 'center', justifyContent: 'center',
+          boxShadow: selected
+            ? [
+              { offsetX: 0, offsetY: 0, blurRadius: 16, color: 'rgba(255,215,0,0.9)' },
+              { offsetX: 0, offsetY: 6, blurRadius: 12, color: 'rgba(0,0,0,0.5)' },
+            ]
+            : [{ offsetX: 0, offsetY: 2, blurRadius: 5, color: 'rgba(0,0,0,0.55)' }],
+        }}>
+        {/* 左上角点数花色 */}
+        <Text style={{
+          position: 'absolute', top: small ? 2 : 3, left: small ? 3 : 4,
+          color, fontSize: small ? 8 : 12, fontWeight: '900', lineHeight: small ? 9 : 13,
+        }}>{rank}</Text>
+        <Text style={{
+          position: 'absolute', top: small ? 10 : 14, left: small ? 3 : 4,
+          color, fontSize: small ? 7 : 10, lineHeight: small ? 8 : 11,
+        }}>{suit}</Text>
+        {/* 中央大花色 */}
+        <Text style={{ color, fontSize: fs, fontWeight: '700' }}>{suit}</Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -114,11 +153,11 @@ function CardView({
 // 对手竖向叠牌（左右两侧）
 // ==========================================
 function SideOpponentCards({ count }: { count: number }) {
-  const total = Math.min(count, 9);
+  const total = Math.min(count, 10);
   return (
-    <View style={{ alignItems: 'center', height: 40 + (total - 1) * 9 }}>
+    <View style={{ alignItems: 'center', height: 44 + (total - 1) * 8 }}>
       {Array.from({ length: total }).map((_, i) => (
-        <View key={i} style={{ position: 'absolute', top: i * 9 }}>
+        <View key={i} style={{ position: 'absolute', top: i * 8 }}>
           <CardView card={{ id: `b${i}`, suit: 'spades', rank: '3', value: 0 }} small faceDown />
         </View>
       ))}
@@ -134,7 +173,7 @@ function TopOpponentCards({ count }: { count: number }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
       {Array.from({ length: total }).map((_, i) => (
-        <View key={i} style={{ marginLeft: i === 0 ? 0 : -14 }}>
+        <View key={i} style={{ marginLeft: i === 0 ? 0 : -16 }}>
           <CardView card={{ id: `tb${i}`, suit: 'spades', rank: '3', value: 0 }} small faceDown />
         </View>
       ))}
@@ -143,135 +182,25 @@ function TopOpponentCards({ count }: { count: number }) {
 }
 
 // ==========================================
-// 左右对手玩家卡片 — 精品手游风格
+// 玩家头像框（统一样式）
 // ==========================================
-function SidePlayerCard({ player, isCurrentTurn, countdown }: {
-  player: PlayerState;
-  isCurrentTurn: boolean;
-  countdown: number;
-}) {
+function PlayerAvatar({
+  player, isCurrentTurn, size = 44,
+}: { player: PlayerState; isCurrentTurn: boolean; size?: number }) {
   return (
     <View style={{
-      width: 76, borderRadius: 12, overflow: 'hidden',
-      borderWidth: isCurrentTurn ? 2 : 1.5,
-      borderColor: isCurrentTurn ? '#FFD700' : 'rgba(255,215,0,0.2)',
-      backgroundColor: 'rgba(6,20,10,0.92)',
+      width: size, height: size, borderRadius: size / 2,
+      borderWidth: 2, overflow: 'hidden',
+      borderColor: isCurrentTurn ? THEME.gold : 'rgba(212,175,55,0.3)',
       boxShadow: isCurrentTurn
-        ? [{ offsetX: 0, offsetY: 0, blurRadius: 16, color: 'rgba(255,215,0,0.6)' }]
-        : [{ offsetX: 0, offsetY: 3, blurRadius: 10, color: 'rgba(0,0,0,0.7)' }],
-    }}>
-      {/* 头像区 */}
-      <View style={{ height: 68, backgroundColor: '#071a0e', alignItems: 'center', justifyContent: 'center' }}>
-        {player.avatarUrl ? (
-          <Image source={{ uri: player.avatarUrl }} style={{ width: 76, height: 68 }} contentFit="cover" />
-        ) : (
-          <View style={{
-            width: 44, height: 44, borderRadius: 22,
-            backgroundColor: isCurrentTurn ? 'rgba(255,215,0,0.15)' : 'rgba(255,255,255,0.07)',
-            borderWidth: 2, borderColor: isCurrentTurn ? 'rgba(255,215,0,0.6)' : 'rgba(255,255,255,0.15)',
-            alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Text style={{ fontSize: 22 }}>{player.isAI ? '🤖' : '👤'}</Text>
-          </View>
-        )}
-        {/* 轮到该玩家时的金色底条 */}
-        {isCurrentTurn && (
-          <View style={{
-            position: 'absolute', bottom: 0, left: 0, right: 0, height: 3,
-            backgroundColor: '#FFD700',
-          }} />
-        )}
-      </View>
-      {/* 信息区 */}
-      <View style={{ paddingHorizontal: 4, paddingVertical: 5, alignItems: 'center', gap: 3 }}>
-        <Text style={{
-          color: isCurrentTurn ? '#FFD700' : '#fff',
-          fontSize: 10, fontWeight: '700',
-        }} numberOfLines={1}>{player.nickname}</Text>
-        {/* 牌数 + 倒计时行 */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <View style={{
-            backgroundColor: isCurrentTurn ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.1)',
-            borderRadius: 8, paddingHorizontal: 7, paddingVertical: 1,
-            borderWidth: 1, borderColor: isCurrentTurn ? 'rgba(255,215,0,0.5)' : 'rgba(255,255,255,0.15)',
-          }}>
-            <Text style={{ color: isCurrentTurn ? '#FFD700' : 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: '700' }}>
-              {player.handCount}张
-            </Text>
-          </View>
-          {isCurrentTurn && countdown > 0 && (
-            <View style={{
-              backgroundColor: countdown <= 5 ? 'rgba(255,68,68,0.3)' : 'rgba(255,215,0,0.15)',
-              borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1,
-              borderWidth: 1, borderColor: countdown <= 5 ? '#FF4444' : 'rgba(255,215,0,0.4)',
-            }}>
-              <Text style={{ color: countdown <= 5 ? '#FF6B6B' : '#FFD700', fontSize: 10, fontWeight: '800' }}>{countdown}</Text>
-            </View>
-          )}
-        </View>
-        {player.hasPassed && (
-          <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9 }}>过牌</Text>
-        )}
-      </View>
-    </View>
-  );
-}
-
-// ==========================================
-// 上方对手信息条 — 精品胶囊设计
-// ==========================================
-function TopPlayerBar({ player, isCurrentTurn, countdown }: {
-  player: PlayerState;
-  isCurrentTurn: boolean;
-  countdown: number;
-}) {
-  return (
-    <View style={{
-      flexDirection: 'row', alignItems: 'center', gap: 7,
-      backgroundColor: isCurrentTurn ? 'rgba(255,215,0,0.1)' : 'rgba(0,0,0,0.75)',
-      borderRadius: 22, paddingHorizontal: 8, paddingVertical: 5,
-      borderWidth: isCurrentTurn ? 1.5 : 1,
-      borderColor: isCurrentTurn ? '#FFD700' : 'rgba(255,215,0,0.2)',
-      boxShadow: isCurrentTurn
-        ? [{ offsetX: 0, offsetY: 0, blurRadius: 12, color: 'rgba(255,215,0,0.5)' }]
+        ? [{ offsetX: 0, offsetY: 0, blurRadius: 12, color: 'rgba(212,175,55,0.7)' }]
         : [],
     }}>
-      {/* 头像小圆 */}
-      <View style={{
-        width: 30, height: 30, borderRadius: 15, overflow: 'hidden',
-        borderWidth: 2, borderColor: isCurrentTurn ? '#FFD700' : 'rgba(255,215,0,0.25)',
-      }}>
-        {player.avatarUrl ? (
-          <Image source={{ uri: player.avatarUrl }} style={{ width: 30, height: 30 }} contentFit="cover" />
-        ) : (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#071a0e' }}>
-            <Text style={{ fontSize: 15 }}>{player.isAI ? '🤖' : '👤'}</Text>
-          </View>
-        )}
-      </View>
-      <Text style={{
-        color: isCurrentTurn ? '#FFD700' : '#fff',
-        fontSize: 11, fontWeight: '700',
-      }}>{player.nickname}</Text>
-      <View style={{
-        backgroundColor: isCurrentTurn ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.12)',
-        borderRadius: 7, paddingHorizontal: 6, paddingVertical: 1,
-        borderWidth: 1, borderColor: isCurrentTurn ? 'rgba(255,215,0,0.5)' : 'rgba(255,255,255,0.15)',
-      }}>
-        <Text style={{ color: isCurrentTurn ? '#FFD700' : 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: '700' }}>
-          {player.handCount}张
-        </Text>
-      </View>
-      {isCurrentTurn && countdown > 0 && (
-        <View style={{
-          backgroundColor: countdown <= 5 ? 'rgba(255,68,68,0.25)' : 'transparent',
-          borderRadius: 6, paddingHorizontal: 4, paddingVertical: 1,
-          borderWidth: 1, borderColor: countdown <= 5 ? '#FF4444' : 'rgba(255,215,0,0.3)',
-        }}>
-          <Text style={{
-            color: countdown <= 5 ? '#FF6B6B' : '#FFD700',
-            fontSize: 11, fontWeight: '800',
-          }}>{countdown}s</Text>
+      {player.avatarUrl ? (
+        <Image source={{ uri: player.avatarUrl }} style={{ width: size, height: size }} contentFit="cover" />
+      ) : (
+        <View style={{ flex: 1, backgroundColor: THEME.bgCard, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: size * 0.48 }}>{player.isAI ? '🤖' : '👤'}</Text>
         </View>
       )}
     </View>
@@ -279,27 +208,141 @@ function TopPlayerBar({ player, isCurrentTurn, countdown }: {
 }
 
 // ==========================================
-// 中央桌面出牌区
+// 倒计时环（当前行动玩家用）
 // ==========================================
-function PlayArea({ lastPlay, lastPlayNickname }: { lastPlay: Play | null; lastPlayNickname: string }) {
+function CountdownBadge({ countdown, urgent }: { countdown: number; urgent: boolean }) {
+  return (
+    <View style={{
+      minWidth: 32, height: 20, borderRadius: 10,
+      alignItems: 'center', justifyContent: 'center',
+      paddingHorizontal: 6,
+      backgroundColor: urgent ? 'rgba(230,57,70,0.25)' : 'rgba(212,175,55,0.15)',
+      borderWidth: 1,
+      borderColor: urgent ? THEME.red : THEME.gold,
+    }}>
+      <Text style={{
+        color: urgent ? THEME.red : THEME.gold,
+        fontSize: 11, fontWeight: '800', fontVariant: ['tabular-nums'],
+      }}>{countdown}s</Text>
+    </View>
+  );
+}
+
+// ==========================================
+// 左右对手玩家卡片（竖排）
+// ==========================================
+function SidePlayerCard({ player, isCurrentTurn, countdown }: {
+  player: PlayerState; isCurrentTurn: boolean; countdown: number;
+}) {
+  return (
+    <View style={{
+      width: 72, borderRadius: 10,
+      backgroundColor: THEME.bgCard,
+      borderWidth: isCurrentTurn ? 1.5 : 1,
+      borderColor: isCurrentTurn ? THEME.gold : THEME.border,
+      alignItems: 'center', paddingVertical: 8, gap: 5,
+      boxShadow: isCurrentTurn
+        ? [{ offsetX: 0, offsetY: 0, blurRadius: 14, color: 'rgba(212,175,55,0.45)' }]
+        : [{ offsetX: 0, offsetY: 2, blurRadius: 8, color: 'rgba(0,0,0,0.6)' }],
+    }}>
+      <PlayerAvatar player={player} isCurrentTurn={isCurrentTurn} size={40} />
+      <Text style={{
+        color: isCurrentTurn ? THEME.gold : THEME.white,
+        fontSize: 10, fontWeight: '700',
+      }} numberOfLines={1}>{player.nickname}</Text>
+      <View style={{
+        flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap', justifyContent: 'center',
+      }}>
+        <View style={{
+          backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 6,
+          paddingHorizontal: 6, paddingVertical: 1,
+        }}>
+          <Text style={{ color: THEME.dim, fontSize: 10 }}>{player.handCount}张</Text>
+        </View>
+        {isCurrentTurn && countdown > 0 && (
+          <CountdownBadge countdown={countdown} urgent={countdown <= 5} />
+        )}
+      </View>
+      {player.hasPassed && (
+        <Text style={{ color: THEME.dim, fontSize: 9 }}>PASS</Text>
+      )}
+    </View>
+  );
+}
+
+// ==========================================
+// 上方对家信息条（横排）
+// ==========================================
+function TopPlayerBar({ player, isCurrentTurn, countdown }: {
+  player: PlayerState; isCurrentTurn: boolean; countdown: number;
+}) {
+  return (
+    <View style={{
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      backgroundColor: isCurrentTurn ? 'rgba(212,175,55,0.1)' : 'rgba(13,27,62,0.9)',
+      borderRadius: 22, paddingHorizontal: 10, paddingVertical: 5,
+      borderWidth: isCurrentTurn ? 1.5 : 1,
+      borderColor: isCurrentTurn ? THEME.gold : THEME.border,
+      boxShadow: isCurrentTurn
+        ? [{ offsetX: 0, offsetY: 0, blurRadius: 12, color: 'rgba(212,175,55,0.4)' }]
+        : [],
+    }}>
+      <PlayerAvatar player={player} isCurrentTurn={isCurrentTurn} size={28} />
+      <Text style={{
+        color: isCurrentTurn ? THEME.gold : THEME.white,
+        fontSize: 11, fontWeight: '700',
+      }}>{player.nickname}</Text>
+      <View style={{
+        backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 6,
+        paddingHorizontal: 6, paddingVertical: 1,
+      }}>
+        <Text style={{ color: THEME.dim, fontSize: 10 }}>{player.handCount}张</Text>
+      </View>
+      {isCurrentTurn && countdown > 0 && (
+        <CountdownBadge countdown={countdown} urgent={countdown <= 5} />
+      )}
+    </View>
+  );
+}
+
+// ==========================================
+// 中央出牌展示区
+// ==========================================
+function PlayArea({
+  lastPlay, lastPlayNickname, mustBeat,
+}: { lastPlay: Play | null; lastPlayNickname: string; mustBeat: boolean }) {
   if (!lastPlay) {
     return (
-      <View style={{ alignItems: 'center', justifyContent: 'center', minHeight: 80 }}>
-        <Text style={{ color: 'rgba(255,215,0,0.25)', fontSize: 13, letterSpacing: 2 }}>✦ 等待出牌 ✦</Text>
+      <View style={{ alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 90 }}>
+        <Text style={{ color: THEME.goldDim, fontSize: 12, letterSpacing: 3 }}>— 等待出牌 —</Text>
       </View>
     );
   }
   return (
-    <View style={{ alignItems: 'center', gap: 7 }}>
-      <View style={{
-        backgroundColor: 'rgba(255,215,0,0.12)', borderRadius: 12,
-        paddingHorizontal: 10, paddingVertical: 3,
-        borderWidth: 1, borderColor: 'rgba(255,215,0,0.3)',
-      }}>
-        <Text style={{ color: 'rgba(255,220,100,0.9)', fontSize: 11, fontWeight: '600' }}>
-          {lastPlayNickname} · {getTypeName(lastPlay.type)}
-        </Text>
+    <View style={{ alignItems: 'center', gap: 6, minHeight: 90, justifyContent: 'center' }}>
+      {/* 出牌玩家 + 牌型 */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <View style={{
+          backgroundColor: 'rgba(212,175,55,0.12)', borderRadius: 10,
+          paddingHorizontal: 8, paddingVertical: 2,
+          borderWidth: 1, borderColor: THEME.goldDim,
+        }}>
+          <Text style={{ color: THEME.gold, fontSize: 10, fontWeight: '700' }}>
+            {lastPlayNickname} · {getTypeName(lastPlay.type)}
+          </Text>
+        </View>
+        {/* 必须压提示 */}
+        {mustBeat && (
+          <View style={{
+            backgroundColor: 'rgba(230,57,70,0.2)', borderRadius: 10,
+            paddingHorizontal: 8, paddingVertical: 2,
+            borderWidth: 1, borderColor: THEME.red,
+          }}>
+            <Text style={{ color: THEME.red, fontSize: 10, fontWeight: '700' }}>必须压</Text>
+          </View>
+        )}
       </View>
+      {/* 牌面 */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 3 }}>
         {lastPlay.cards.map(card => (
           <CardView key={card.id} card={card} small />
@@ -336,6 +379,7 @@ export default function GameScreen() {
   const [round, setRound] = useState(1);
   const [gameStartTime] = useState(Date.now());
   const [myPlayCount, setMyPlayCount] = useState(0);
+  const [myBeans, setMyBeans] = useState(0);
   const [emojiMsg, setEmojiMsg] = useState<{ seat: SeatPosition; emoji: string } | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -370,6 +414,10 @@ export default function GameScreen() {
       if (rp.is_ai) return null;
       return rp.user_id ? getProfile(rp.user_id) : null;
     }));
+
+    // 设置自己的豆数
+    const myProfile = profiles.find(p => p?.id === user.id);
+    if (myProfile) setMyBeans(myProfile.beans ?? 0);
 
     await loadGameState(roomId, seat, roomPlayers, profiles.filter(Boolean));
     setLoading(false);
@@ -605,6 +653,8 @@ export default function GameScreen() {
   const toggleCard = (card: Card) => {
     setErrorMsg('');
     setAntiDumpWarning('');
+    // 轻触觉反馈：选牌时轻震
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedCards(prev => {
       const isSelected = prev.some(c => c.id === card.id);
       if (isSelected) return prev.filter(c => c.id !== card.id);
@@ -634,6 +684,8 @@ export default function GameScreen() {
     );
 
     if (!validation.valid) {
+      // 出牌失败：中度震动提示
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       if (validation.reason?.includes('上家')) {
         setAntiDumpWarning(validation.reason);
       } else {
@@ -644,6 +696,9 @@ export default function GameScreen() {
 
     const play = buildPlay(selectedCards);
     if (!play) { setErrorMsg('无效牌型'); return; }
+
+    // 出牌成功：重击震动
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
     if (countdownRef.current) clearInterval(countdownRef.current);
 
@@ -746,9 +801,8 @@ export default function GameScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#030f07' }}>
-        <Image source={{ uri: BG_URL }} style={{ position: 'absolute', width: '100%', height: '100%' }} contentFit="cover" />
-        <View style={{ position: 'absolute', width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.72)' }} />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: THEME.bg }}>
+        <View style={{ position: 'absolute', width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)' }} />
         {/* 金边加载卡片 */}
         <View style={{
           alignItems: 'center', gap: 16,
@@ -773,6 +827,33 @@ export default function GameScreen() {
   const prevPlayer = players.find(p => p.seat === prevSeat);
   const showAntiDumpHint = prevPlayer?.handCount === 1;
 
+  // 桌面光晕脉冲动画：轮到自己时循环呼吸发光
+  const glowOpacity = useSharedValue(0.06);
+  const glowScale = useSharedValue(1);
+  useEffect(() => {
+    if (isMyTurn) {
+      glowOpacity.value = withRepeat(
+        withSequence(
+          withTiming(0.28, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.08, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+        ), -1, false,
+      );
+      glowScale.value = withRepeat(
+        withSequence(
+          withTiming(1.06, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1.0, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+        ), -1, false,
+      );
+    } else {
+      glowOpacity.value = withTiming(0.06, { duration: 400 });
+      glowScale.value = withTiming(1, { duration: 400 });
+    }
+  }, [isMyTurn]);
+  const glowStyle = useAnimatedStyle(() => ({
+    opacity: glowOpacity.value,
+    transform: [{ scale: glowScale.value }],
+  }));
+
   const getRelativeSeat = (mySeatNum: SeatPosition, offset: number): SeatPosition =>
     ((mySeatNum + offset) % 4) as SeatPosition;
 
@@ -787,25 +868,56 @@ export default function GameScreen() {
 
   const lastPlayPlayer = lastPlaySeat !== null ? players.find(p => p.seat === lastPlaySeat) : null;
 
-  // 手牌间距：最多 13 张，让每张牌主体都尽量可见
-  const cardOverlap = myHand.length > 10 ? -8 : myHand.length > 7 ? -4 : 4;
+  // 手牌弧形偏移：每张牌根据位置计算轻微Y轴偏移，模拟弧形扇面
+  const getCardArcOffset = (idx: number, total: number) => {
+    const center = (total - 1) / 2;
+    const dist = idx - center;
+    return Math.abs(dist) * 2.5; // 两端略高，中间最低
+  };
+
+  const cardOverlap = myHand.length > 10 ? -10 : myHand.length > 7 ? -5 : 2;
+
+  // 是否有方块3（开局提示）
+  const hasDiamond3 = myHand.some(c => c.suit === 'diamonds' && c.rank === '3');
+  const isFirstPlay = round === 1 && winOrder.length === 0 && lastPlay === null;
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#030f07' }}>
+    <View style={{ flex: 1, backgroundColor: THEME.bg }}>
       <StatusBar style="light" hidden />
 
-      {/* ── 背景：深绿毡面 ── */}
-      <Image source={{ uri: BG_URL }} style={{ position: 'absolute', width: '100%', height: '100%' }} contentFit="cover" />
-      {/* 深色蒙层强化绿毡感 */}
-      <View style={{ position: 'absolute', width: '100%', height: '100%', backgroundColor: 'rgba(2,12,5,0.62)' }} />
+      {/* ── 深蓝渐变背景 + 网格纹理 ── */}
+      <View style={{ position: 'absolute', width: '100%', height: '100%', backgroundColor: THEME.bg }} />
+      {/* 网格线横向 */}
+      {Array.from({ length: 12 }).map((_, i) => (
+        <View key={`h${i}`} style={{
+          position: 'absolute', left: 0, right: 0,
+          top: i * 52, height: 1,
+          backgroundColor: 'rgba(212,175,55,0.04)',
+        }} />
+      ))}
+      {/* 网格线纵向 */}
+      {Array.from({ length: 20 }).map((_, i) => (
+        <View key={`v${i}`} style={{
+          position: 'absolute', top: 0, bottom: 0,
+          left: i * 52, width: 1,
+          backgroundColor: 'rgba(212,175,55,0.04)',
+        }} />
+      ))}
+      {/* 中央光晕 */}
+      <View style={{
+        position: 'absolute', alignSelf: 'center',
+        top: '20%', width: 300, height: 200, borderRadius: 150,
+        backgroundColor: 'rgba(20,50,120,0.35)',
+        boxShadow: [{ offsetX: 0, offsetY: 0, blurRadius: 80, color: 'rgba(30,60,160,0.3)' }],
+      }} />
 
       {/* ══════════════════════════════════════════
-          布局：左面板 | 中央区 | 右面板
+          主布局：左玩家 | 中央区 | 右玩家
           ══════════════════════════════════════════ */}
       <View style={{ flex: 1, flexDirection: 'row' }}>
 
-        {/* ── 左侧对手面板 ── */}
-        <View style={{ width: 92, alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 8 }}>
+        {/* ── 左侧：上家 ── */}
+        <View style={{ width: 88, alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12 }}>
           {leftPlayer ? (
             <>
               <SidePlayerCard
@@ -817,12 +929,12 @@ export default function GameScreen() {
             </>
           ) : (
             <View style={{
-              width: 76, height: 110, borderRadius: 12,
-              backgroundColor: 'rgba(255,255,255,0.04)',
-              borderWidth: 1, borderColor: 'rgba(255,215,0,0.1)',
+              width: 72, height: 100, borderRadius: 10,
+              backgroundColor: 'rgba(255,255,255,0.03)',
+              borderWidth: 1, borderColor: THEME.border,
               alignItems: 'center', justifyContent: 'center',
             }}>
-              <Text style={{ color: 'rgba(255,215,0,0.2)', fontSize: 10 }}>等待</Text>
+              <Text style={{ color: THEME.goldDim, fontSize: 10 }}>等待</Text>
             </View>
           )}
         </View>
@@ -830,57 +942,81 @@ export default function GameScreen() {
         {/* ── 中央区域 ── */}
         <View style={{ flex: 1, flexDirection: 'column' }}>
 
-          {/* === 顶部信息栏 === */}
+          {/* ═══ 顶部信息栏 ═══ */}
           <View style={{
             flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-            paddingHorizontal: 10, paddingTop: 5, paddingBottom: 3,
+            paddingHorizontal: 10, paddingTop: 6, paddingBottom: 4,
+            backgroundColor: 'rgba(10,22,60,0.85)',
+            borderBottomWidth: 1, borderBottomColor: THEME.border,
           }}>
             {/* 离开按钮 */}
-            <Pressable onPress={() => router.back()}
-              style={{
-                flexDirection: 'row', alignItems: 'center', gap: 4,
-                backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 14,
-                paddingHorizontal: 10, paddingVertical: 5,
-                borderWidth: 1, borderColor: 'rgba(255,215,0,0.2)',
-              }}>
-              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>←</Text>
-              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>离开</Text>
+            <Pressable onPress={() => router.back()} style={{
+              flexDirection: 'row', alignItems: 'center', gap: 4,
+              backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12,
+              paddingHorizontal: 10, paddingVertical: 4,
+              borderWidth: 1, borderColor: THEME.border,
+            }}>
+              <Text style={{ color: THEME.dim, fontSize: 13 }}>←</Text>
+              <Text style={{ color: THEME.dim, fontSize: 11 }}>离开</Text>
             </Pressable>
 
-            {/* 局号 + 防放水提示 */}
-            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            {/* 中间：局号 + 方块3开局提示 + 防放水 */}
+            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
               <View style={{
-                backgroundColor: 'rgba(255,215,0,0.1)', borderRadius: 10,
+                backgroundColor: 'rgba(212,175,55,0.1)', borderRadius: 8,
                 paddingHorizontal: 10, paddingVertical: 3,
-                borderWidth: 1, borderColor: 'rgba(255,215,0,0.3)',
+                borderWidth: 1, borderColor: THEME.goldDim,
               }}>
-                <Text style={{ color: '#FFD700', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>第 {round} 局</Text>
+                <Text style={{ color: THEME.gold, fontSize: 11, fontWeight: '700' }}>第 {round} 局</Text>
               </View>
+              {isFirstPlay && hasDiamond3 && (
+                <View style={{
+                  backgroundColor: 'rgba(212,175,55,0.15)', borderRadius: 8,
+                  paddingHorizontal: 8, paddingVertical: 3,
+                  borderWidth: 1, borderColor: THEME.gold,
+                }}>
+                  <Text style={{ color: THEME.gold, fontSize: 10, fontWeight: '700' }}>♦3 先手开局</Text>
+                </View>
+              )}
               {showAntiDumpHint && (
                 <View style={{
-                  backgroundColor: 'rgba(255,68,68,0.15)', borderRadius: 10,
-                  paddingHorizontal: 9, paddingVertical: 3,
-                  borderWidth: 1, borderColor: '#FF4444',
+                  backgroundColor: 'rgba(230,57,70,0.15)', borderRadius: 8,
+                  paddingHorizontal: 8, paddingVertical: 3,
+                  borderWidth: 1, borderColor: THEME.red,
                 }}>
-                  <Text style={{ color: '#FF6B6B', fontSize: 10, fontWeight: '600' }}>⚠ {prevPlayer?.nickname} 最后1张！</Text>
+                  <Text style={{ color: THEME.red, fontSize: 10, fontWeight: '600' }}>
+                    ⚠ {prevPlayer?.nickname} 最后1张
+                  </Text>
                 </View>
               )}
             </View>
 
-            {/* 表情按钮 */}
-            <Pressable onPress={() => setShowEmoji(true)}
-              style={{
-                width: 34, height: 34, borderRadius: 17,
-                backgroundColor: 'rgba(0,0,0,0.55)',
-                borderWidth: 1, borderColor: 'rgba(255,215,0,0.25)',
+            {/* 右侧：我的豆数 + 表情 */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={{
+                backgroundColor: 'rgba(212,175,55,0.1)', borderRadius: 8,
+                paddingHorizontal: 8, paddingVertical: 3,
+                borderWidth: 1, borderColor: THEME.goldDim,
+                flexDirection: 'row', alignItems: 'center', gap: 4,
+              }}>
+                <Text style={{ fontSize: 12 }}>🪙</Text>
+                <Text style={{ color: THEME.gold, fontSize: 11, fontWeight: '700' }}>
+                  {myBeans}
+                </Text>
+              </View>
+              <Pressable onPress={() => setShowEmoji(true)} style={{
+                width: 32, height: 32, borderRadius: 16,
+                backgroundColor: 'rgba(255,255,255,0.06)',
+                borderWidth: 1, borderColor: THEME.border,
                 alignItems: 'center', justifyContent: 'center',
               }}>
-              <Text style={{ fontSize: 17 }}>😊</Text>
-            </Pressable>
+                <Text style={{ fontSize: 16 }}>😊</Text>
+              </Pressable>
+            </View>
           </View>
 
-          {/* === 上方对手区 === */}
-          <View style={{ alignItems: 'center', gap: 5, paddingBottom: 3 }}>
+          {/* ═══ 对家区（顶部）：头像条 + 牌背 ═══ */}
+          <View style={{ alignItems: 'center', gap: 4, paddingTop: 6, paddingBottom: 2 }}>
             {topPlayer ? (
               <>
                 <TopPlayerBar
@@ -891,55 +1027,47 @@ export default function GameScreen() {
                 <TopOpponentCards count={topPlayer.handCount} />
               </>
             ) : (
-              <View style={{ height: 36 }} />
+              <View style={{ height: 32 }} />
             )}
           </View>
 
-          {/* === 中央椭圆绿毡桌面 === */}
+          {/* ═══ 中央出牌桌面区 ═══ */}
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-            {/* 外圈金光晕 */}
-            <View style={{
-              width: 320, height: 176,
-              borderRadius: 88,
-              position: 'absolute',
-              backgroundColor: 'rgba(255,215,0,0.06)',
-              boxShadow: [{ offsetX: 0, offsetY: 0, blurRadius: 30, color: 'rgba(255,215,0,0.18)' }],
-            }} />
-            {/* 毡面主体椭圆 */}
-            <View style={{
-              width: 300, height: 164, borderRadius: 82,
-              backgroundColor: '#0d4020',
-              borderWidth: 3, borderColor: '#c8a800',
+            {/* 桌面主体：圆角矩形深蓝 */}
+            <Animated.View style={[{
+              width: 320, height: 160, borderRadius: 20,
+              backgroundColor: THEME.tableBg,
+              borderWidth: 2, borderColor: THEME.gold,
               alignItems: 'center', justifyContent: 'center',
               boxShadow: [
-                { offsetX: 0, offsetY: 0, blurRadius: 20, color: 'rgba(255,215,0,0.2)' },
-                { offsetX: 0, offsetY: 6, blurRadius: 20, color: 'rgba(0,0,0,0.8)' },
+                { offsetX: 0, offsetY: 0, blurRadius: 30, color: 'rgba(212,175,55,0.2)' },
+                { offsetX: 0, offsetY: 8, blurRadius: 24, color: 'rgba(0,0,0,0.7)' },
               ],
-            }}>
-              {/* 内圈高光边 */}
+            }, glowStyle]}>
+              {/* 内框细线 */}
               <View style={{
-                position: 'absolute', width: 282, height: 148, borderRadius: 76,
-                borderWidth: 1.5, borderColor: 'rgba(255,215,0,0.18)',
-              }} />
-              {/* 桌面纹理暗圆 */}
-              <View style={{
-                position: 'absolute', width: 240, height: 118, borderRadius: 62,
-                borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)',
+                position: 'absolute', inset: 8, borderRadius: 14,
+                borderWidth: 1, borderColor: 'rgba(212,175,55,0.12)',
               }} />
               {/* 出牌展示 */}
-              <PlayArea lastPlay={lastPlay} lastPlayNickname={lastPlayPlayer?.nickname ?? ''} />
-            </View>
+              <PlayArea
+                lastPlay={lastPlay}
+                lastPlayNickname={lastPlayPlayer?.nickname ?? ''}
+                mustBeat={lastPlay !== null && lastPlaySeat !== mySeat}
+              />
+            </Animated.View>
 
-            {/* 错误/防放水提示浮层 */}
+            {/* 错误/提示浮层 */}
             {(errorMsg || antiDumpWarning) && (
               <View style={{
-                position: 'absolute', top: 0,
-                backgroundColor: 'rgba(255,68,68,0.12)', borderRadius: 10,
-                paddingHorizontal: 14, paddingVertical: 5,
-                borderWidth: 1, borderColor: '#FF4444',
-                boxShadow: [{ offsetX: 0, offsetY: 0, blurRadius: 10, color: 'rgba(255,68,68,0.3)' }],
+                position: 'absolute', top: 4,
+                backgroundColor: 'rgba(230,57,70,0.15)', borderRadius: 8,
+                paddingHorizontal: 12, paddingVertical: 4,
+                borderWidth: 1, borderColor: THEME.red,
               }}>
-                <Text style={{ color: '#FF6B6B', fontSize: 12, fontWeight: '600' }}>{antiDumpWarning || errorMsg}</Text>
+                <Text style={{ color: THEME.red, fontSize: 12, fontWeight: '600' }}>
+                  {antiDumpWarning || errorMsg}
+                </Text>
               </View>
             )}
 
@@ -951,133 +1079,132 @@ export default function GameScreen() {
             )}
           </View>
 
-          {/* ═══════════════════════════════════════
-              底部操作区：头像 | 手牌 | 按钮
-              ═══════════════════════════════════════ */}
+          {/* ═══════════════════════════════════════════
+              底部操作区：我的信息 | 手牌 | 出牌/过牌
+              ═══════════════════════════════════════════ */}
           <View style={{
-            flexDirection: 'row', alignItems: 'flex-end',
-            paddingHorizontal: 8, paddingBottom: 8, paddingTop: 5, gap: 8,
-            backgroundColor: 'rgba(2,10,5,0.88)',
-            borderTopWidth: 1.5, borderTopColor: 'rgba(255,215,0,0.18)',
+            backgroundColor: 'rgba(10,22,60,0.92)',
+            borderTopWidth: 1.5, borderTopColor: THEME.border,
+            paddingTop: 6, paddingBottom: 8, paddingHorizontal: 8,
           }}>
-
-            {/* 我的头像+信息 */}
-            <View style={{ width: 68, alignItems: 'center', gap: 4, paddingBottom: 2 }}>
-              {/* 头像圆 */}
-              <View style={{
-                width: 50, height: 50, borderRadius: 25, overflow: 'hidden',
-                borderWidth: isMyTurn ? 2.5 : 2,
-                borderColor: isMyTurn ? '#FFD700' : 'rgba(255,215,0,0.25)',
-                boxShadow: isMyTurn
-                  ? [{ offsetX: 0, offsetY: 0, blurRadius: 14, color: 'rgba(255,215,0,0.65)' }]
-                  : [],
-              }}>
-                {myPlayer?.avatarUrl ? (
-                  <Image source={{ uri: myPlayer.avatarUrl }} style={{ width: 50, height: 50 }} contentFit="cover" />
-                ) : (
-                  <View style={{ flex: 1, backgroundColor: '#071a0e', alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 24 }}>👤</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={{
-                color: isMyTurn ? '#FFD700' : 'rgba(255,255,255,0.7)',
-                fontSize: 10, fontWeight: '700',
-              }} numberOfLines={1}>{myPlayer?.nickname ?? '我'}</Text>
-              {isMyTurn && (
+            {/* 底部信息条：昵称 + 豆数 + 倒计时 + 聊天 */}
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+              paddingHorizontal: 4, marginBottom: 6,
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <PlayerAvatar player={myPlayer ?? { seat: mySeat, userId: '', nickname: '我', handCount: 0, isAI: false, avatarUrl: null, hasPassed: false, isDisconnected: false }} isCurrentTurn={isMyTurn} size={32} />
+                <Text style={{ color: isMyTurn ? THEME.gold : THEME.white, fontSize: 12, fontWeight: '700' }}>
+                  {myPlayer?.nickname ?? '我'}
+                </Text>
                 <View style={{
-                  backgroundColor: countdown <= 5 ? 'rgba(255,68,68,0.25)' : 'rgba(255,215,0,0.15)',
-                  borderRadius: 7, paddingHorizontal: 6, paddingVertical: 1,
-                  borderWidth: 1, borderColor: countdown <= 5 ? '#FF4444' : 'rgba(255,215,0,0.5)',
+                  flexDirection: 'row', alignItems: 'center', gap: 3,
+                  backgroundColor: 'rgba(212,175,55,0.1)', borderRadius: 8,
+                  paddingHorizontal: 7, paddingVertical: 2,
+                  borderWidth: 1, borderColor: THEME.goldDim,
                 }}>
-                  <Text style={{
-                    color: countdown <= 5 ? '#FF6B6B' : '#FFD700',
-                    fontSize: 10, fontWeight: '800',
-                  }}>{countdown}s</Text>
+                  <Text style={{ fontSize: 11 }}>🪙</Text>
+                  <Text style={{ color: THEME.gold, fontSize: 11, fontWeight: '700' }}>
+                    {myBeans}
+                  </Text>
                 </View>
-              )}
-            </View>
-
-            {/* 手牌区（横向可滚动） */}
-            <ScrollView
-              horizontal showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ alignItems: 'flex-end', paddingHorizontal: 4 }}
-              style={{ flex: 1, height: 88 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-                {myHand.map((card, idx) => (
-                  <View key={card.id} style={{ marginLeft: idx === 0 ? 0 : cardOverlap }}>
-                    <CardView
-                      card={card}
-                      selected={selectedCards.some(c => c.id === card.id)}
-                      onPress={() => isMyTurn ? toggleCard(card) : undefined}
-                    />
-                  </View>
-                ))}
               </View>
-            </ScrollView>
-
-            {/* 操作按钮组 */}
-            <View style={{ gap: 7, width: 86, paddingBottom: 2 }}>
-              {/* 出牌按钮 */}
-              <Pressable
-                cssInterop={false}
-                onPress={handlePlay}
-                disabled={!isMyTurn || selectedCards.length === 0}
-                style={({ pressed }) => {
-                  const enabled = isMyTurn && selectedCards.length > 0;
-                  return {
-                    height: 46, borderRadius: 23,
-                    alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: !enabled
-                      ? 'rgba(255,255,255,0.06)'
-                      : pressed ? '#b8290d' : '#E8340A',
-                    borderWidth: 1.5,
-                    borderColor: !enabled ? 'rgba(255,255,255,0.08)' : enabled ? '#FF6040' : 'transparent',
-                    boxShadow: enabled
-                      ? [{ offsetX: 0, offsetY: 5, blurRadius: 16, color: 'rgba(232,52,10,0.65)' }]
-                      : [],
-                  };
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {isMyTurn && (
+                  <CountdownBadge countdown={countdown} urgent={countdown <= 5} />
+                )}
+                {/* 聊天按钮 */}
+                <Pressable onPress={() => setShowEmoji(true)} style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 4,
+                  backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 14,
+                  paddingHorizontal: 10, paddingVertical: 4,
+                  borderWidth: 1, borderColor: THEME.border,
                 }}>
-                <Text style={{
-                  fontWeight: '900', fontSize: 18, letterSpacing: 3,
-                  color: (!isMyTurn || selectedCards.length === 0) ? 'rgba(255,255,255,0.18)' : '#fff',
-                  textShadowColor: 'rgba(255,100,50,0.5)',
-                  textShadowRadius: 6,
-                  textShadowOffset: { width: 0, height: 0 },
-                }}>出牌</Text>
-              </Pressable>
-              {/* 过牌按钮 */}
-              <Pressable
-                cssInterop={false}
-                onPress={() => handlePass()}
-                disabled={!isMyTurn || lastPlay === null}
-                style={({ pressed }) => {
-                  const enabled = isMyTurn && lastPlay !== null;
-                  return {
-                    height: 46, borderRadius: 23,
-                    alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: pressed
-                      ? 'rgba(255,215,0,0.18)'
-                      : 'rgba(255,215,0,0.08)',
-                    borderWidth: 1.5,
-                    borderColor: enabled ? 'rgba(255,215,0,0.45)' : 'rgba(255,255,255,0.08)',
-                    boxShadow: enabled
-                      ? [{ offsetX: 0, offsetY: 3, blurRadius: 10, color: 'rgba(255,215,0,0.2)' }]
-                      : [],
-                  };
-                }}>
-                <Text style={{
-                  fontSize: 17, letterSpacing: 3, fontWeight: '700',
-                  color: (!isMyTurn || !lastPlay) ? 'rgba(255,255,255,0.15)' : 'rgba(255,215,0,0.9)',
-                }}>过牌</Text>
-              </Pressable>
+                  <Text style={{ fontSize: 14 }}>💬</Text>
+                  <Text style={{ color: THEME.dim, fontSize: 11 }}>聊天</Text>
+                </Pressable>
+              </View>
             </View>
 
+            {/* 手牌 + 操作按钮行 */}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+              {/* 手牌区（弧形展开） */}
+              <ScrollView
+                horizontal showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ alignItems: 'flex-end', paddingHorizontal: 4, paddingBottom: 4 }}
+                style={{ flex: 1, height: 96 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+                  {myHand.map((card, idx) => (
+                    <View
+                      key={card.id}
+                      style={{
+                        marginLeft: idx === 0 ? 0 : cardOverlap,
+                        marginBottom: getCardArcOffset(idx, myHand.length),
+                      }}>
+                      <CardView
+                        card={card}
+                        selected={selectedCards.some(c => c.id === card.id)}
+                        onPress={() => isMyTurn ? toggleCard(card) : undefined}
+                      />
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+
+              {/* 出牌 / 过牌 按钮 */}
+              <View style={{ gap: 6, width: 88, paddingBottom: 4 }}>
+                <Pressable
+                  cssInterop={false}
+                  onPress={handlePlay}
+                  disabled={!isMyTurn || selectedCards.length === 0}
+                  style={({ pressed }) => {
+                    const enabled = isMyTurn && selectedCards.length > 0;
+                    return {
+                      height: 44, borderRadius: 22,
+                      alignItems: 'center', justifyContent: 'center',
+                      backgroundColor: !enabled ? 'rgba(255,255,255,0.05)' : pressed ? '#b8290d' : THEME.red,
+                      borderWidth: 1.5,
+                      borderColor: enabled ? '#FF6070' : THEME.border,
+                      boxShadow: enabled
+                        ? [{ offsetX: 0, offsetY: 4, blurRadius: 14, color: 'rgba(230,57,70,0.55)' }]
+                        : [],
+                    };
+                  }}>
+                  <Text style={{
+                    fontWeight: '900', fontSize: 17, letterSpacing: 3,
+                    color: (!isMyTurn || selectedCards.length === 0) ? 'rgba(255,255,255,0.2)' : THEME.white,
+                  }}>出牌</Text>
+                </Pressable>
+                <Pressable
+                  cssInterop={false}
+                  onPress={() => handlePass()}
+                  disabled={!isMyTurn || lastPlay === null}
+                  style={({ pressed }) => {
+                    const enabled = isMyTurn && lastPlay !== null;
+                    return {
+                      height: 44, borderRadius: 22,
+                      alignItems: 'center', justifyContent: 'center',
+                      backgroundColor: pressed ? 'rgba(212,175,55,0.15)' : 'rgba(212,175,55,0.07)',
+                      borderWidth: 1.5,
+                      borderColor: enabled ? THEME.goldDim : THEME.border,
+                      boxShadow: enabled
+                        ? [{ offsetX: 0, offsetY: 3, blurRadius: 10, color: 'rgba(212,175,55,0.2)' }]
+                        : [],
+                    };
+                  }}>
+                  <Text style={{
+                    fontSize: 16, letterSpacing: 3, fontWeight: '700',
+                    color: (!isMyTurn || !lastPlay) ? 'rgba(255,255,255,0.15)' : THEME.gold,
+                  }}>过牌</Text>
+                </Pressable>
+              </View>
+            </View>
           </View>
+
         </View>
 
-        {/* ── 右侧对手面板 ── */}
-        <View style={{ width: 92, alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 8 }}>
+        {/* ── 右侧：下家 ── */}
+        <View style={{ width: 88, alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12 }}>
           {rightPlayer ? (
             <>
               <SidePlayerCard
@@ -1089,43 +1216,43 @@ export default function GameScreen() {
             </>
           ) : (
             <View style={{
-              width: 76, height: 110, borderRadius: 12,
-              backgroundColor: 'rgba(255,255,255,0.04)',
-              borderWidth: 1, borderColor: 'rgba(255,215,0,0.1)',
+              width: 72, height: 100, borderRadius: 10,
+              backgroundColor: 'rgba(255,255,255,0.03)',
+              borderWidth: 1, borderColor: THEME.border,
               alignItems: 'center', justifyContent: 'center',
             }}>
-              <Text style={{ color: 'rgba(255,215,0,0.2)', fontSize: 10 }}>等待</Text>
+              <Text style={{ color: THEME.goldDim, fontSize: 10 }}>等待</Text>
             </View>
           )}
         </View>
 
       </View>
 
-      {/* ── 表情 Modal ── */}
+      {/* ── 表情/聊天 Modal ── */}
       <Modal visible={showEmoji} transparent animationType="slide">
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' }} onPress={() => setShowEmoji(false)}>
           <View style={{
             position: 'absolute', bottom: 0, left: 0, right: 0,
-            borderTopLeftRadius: 22, borderTopRightRadius: 22,
+            borderTopLeftRadius: 20, borderTopRightRadius: 20,
             padding: 18, paddingBottom: 24,
-            backgroundColor: 'rgba(4,16,8,0.97)',
-            borderTopWidth: 1.5, borderColor: 'rgba(255,215,0,0.3)',
-            boxShadow: [{ offsetX: 0, offsetY: -4, blurRadius: 20, color: 'rgba(255,215,0,0.1)' }],
+            backgroundColor: THEME.bgCard,
+            borderTopWidth: 1.5, borderColor: THEME.gold,
+            boxShadow: [{ offsetX: 0, offsetY: -4, blurRadius: 20, color: 'rgba(212,175,55,0.1)' }],
           }}>
             <Text style={{
-              color: '#FFD700', textAlign: 'center', fontWeight: '800',
+              color: THEME.gold, textAlign: 'center', fontWeight: '800',
               fontSize: 14, letterSpacing: 2, marginBottom: 14,
             }}>发送表情</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
               {EMOJIS.map(emoji => (
                 <Pressable key={emoji} onPress={() => sendEmoji(emoji)}
                   style={{
-                    width: 54, height: 54, borderRadius: 14,
+                    width: 52, height: 52, borderRadius: 12,
                     alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: 'rgba(255,215,0,0.08)',
-                    borderWidth: 1, borderColor: 'rgba(255,215,0,0.2)',
+                    backgroundColor: 'rgba(212,175,55,0.08)',
+                    borderWidth: 1, borderColor: THEME.border,
                   }}>
-                  <Text style={{ fontSize: 28 }}>{emoji}</Text>
+                  <Text style={{ fontSize: 26 }}>{emoji}</Text>
                 </Pressable>
               ))}
             </View>
