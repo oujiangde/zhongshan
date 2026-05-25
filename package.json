@@ -7,7 +7,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "devkit-lint"
+    "lint": "devkit-lint",
+    "push": "python3 scripts/push-to-github.py"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
