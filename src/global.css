@@ -4,48 +4,48 @@
 
 @layer base {
   :root {
-    /* 深色牌桌风格：胡桃木+朱砂红+琉璃金 */
-    --background: 150 30% 8%;
-    --foreground: 0 0% 95%;
-    --card: 150 25% 12%;
-    --card-foreground: 0 0% 95%;
-    --popover: 150 25% 10%;
-    --popover-foreground: 0 0% 95%;
-    --primary: 4 68% 47%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 150 20% 18%;
-    --secondary-foreground: 0 0% 90%;
-    --muted: 150 20% 15%;
-    --muted-foreground: 0 0% 55%;
-    --accent: 42 71% 52%;
-    --accent-foreground: 0 0% 10%;
-    --destructive: 0 84% 60%;
+    /* 新国风轻奢竞技：深紫檀 + 琉璃金 + 朱砂红 */
+    --background: 270 40% 11%;
+    --foreground: 42 60% 90%;
+    --card: 270 35% 15%;
+    --card-foreground: 42 60% 92%;
+    --popover: 270 35% 13%;
+    --popover-foreground: 42 60% 92%;
+    --primary: 42 75% 50%;
+    --primary-foreground: 270 40% 8%;
+    --secondary: 270 28% 20%;
+    --secondary-foreground: 42 50% 85%;
+    --muted: 270 25% 18%;
+    --muted-foreground: 270 15% 55%;
+    --accent: 0 65% 47%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 150 15% 20%;
-    --input: 150 15% 20%;
-    --ring: 4 68% 47%;
-    --radius: 0.5rem;
+    --border: 270 20% 22%;
+    --input: 270 20% 22%;
+    --ring: 42 75% 50%;
+    --radius: 0.75rem;
   }
 
   .dark {
-    --background: 150 30% 6%;
-    --foreground: 0 0% 95%;
-    --card: 150 25% 10%;
-    --card-foreground: 0 0% 95%;
-    --popover: 150 25% 8%;
-    --popover-foreground: 0 0% 95%;
-    --primary: 4 68% 47%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 150 20% 16%;
-    --secondary-foreground: 0 0% 90%;
-    --muted: 150 20% 13%;
-    --muted-foreground: 0 0% 55%;
-    --accent: 42 71% 52%;
-    --accent-foreground: 0 0% 10%;
-    --destructive: 0 84% 60%;
+    --background: 270 40% 8%;
+    --foreground: 42 60% 90%;
+    --card: 270 35% 12%;
+    --card-foreground: 42 60% 92%;
+    --popover: 270 35% 10%;
+    --popover-foreground: 42 60% 92%;
+    --primary: 42 75% 50%;
+    --primary-foreground: 270 40% 8%;
+    --secondary: 270 28% 17%;
+    --secondary-foreground: 42 50% 85%;
+    --muted: 270 25% 15%;
+    --muted-foreground: 270 15% 50%;
+    --accent: 0 65% 47%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 150 15% 18%;
-    --input: 150 15% 18%;
-    --ring: 4 68% 47%;
+    --border: 270 20% 19%;
+    --input: 270 20% 19%;
+    --ring: 42 75% 50%;
   }
 }
