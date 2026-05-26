@@ -1,10 +1,11 @@
 {
   "expo": {
     "name": "钟山跑得快",
-    "slug": "pao-de-kuai",
-    "version": "1.0.26",
+    "slug": "oujiangde",
+    "owner": "18878482610",
+    "version": "1.0.69",
     "orientation": "landscape",
-    "icon": "https://miaoda-edit-image.cdn.bcebos.com/bv4j4s8noge9/IMG-bvkeqp8p4ow0.png",
+    "icon": "https://miaoda-edit-image.cdn.bcebos.com/bv4j4s8noge9/IMG-bw0dza2f7rwg.png",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
@@ -15,7 +16,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "https://miaoda-edit-image.cdn.bcebos.com/bv4j4s8noge9/IMG-bvkeqp8p4ow0.png",
+        "foregroundImage": "https://miaoda-edit-image.cdn.bcebos.com/bv4j4s8noge9/IMG-bw0dza2f7rwg.png",
         "backgroundColor": "#ffffff"
       },
       "predictiveBackGestureEnabled": false,
@@ -49,7 +50,9 @@
       ],
       "expo-updates",
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-audio",
+      "@react-native-async-storage/expo-with-async-storage"
     ],
     "router": {
       "root": "src"
@@ -64,11 +67,11 @@
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 3000,
-      "url": "https://u.expo.dev/77da8df5-b408-41d5-8c80-e2958d2aa18c"
+      "url": "https://u.expo.dev/f15e6aeb-414e-4b16-9b77-146db5763c1d"
     },
     "extra": {
       "eas": {
-        "projectId": "77da8df5-b408-41d5-8c80-e2958d2aa18c"
+        "projectId": "f15e6aeb-414e-4b16-9b77-146db5763c1d"
       }
     }
   }
