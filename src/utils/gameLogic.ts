@@ -1,6 +1,6 @@
 /**
  * 跑得快核心游戏逻辑
- * 规则：4人，13张/人，无王无炸，顺子固定4张
+ * 规则：4人，13张/人，顺子固定4张
  * 牌大小：3<4<5<6<7<8<9<10<J<Q<K<A<2
  */
 
@@ -103,17 +103,14 @@ function isStraight4(cards: Card[]): boolean {
   // 特殊顺子 A234：值 [0,1,2,11]
   if (JSON.stringify(vals) === JSON.stringify([0, 1, 2, 11])) return true;
 
-  // 普通4连顺
+  // 特殊顺子 2345：值 [2,3,4,12]
+  if (JSON.stringify(vals) === JSON.stringify([2, 3, 4, 12])) return true;
+
+  // 普通4连顺（检查是否连续）
   for (let i = 1; i < vals.length; i++) {
     if (vals[i] !== vals[i - 1] + 1) return false;
   }
-  // 不能包含2（值12）在普通顺子中
-  // 2345才是含2的最大顺子，2的值是12，5678910JQK都行
-  // 按规则 2345：值 [2,3,4,12] -> sorted [2,3,4,12] -> 不连续，不是普通顺子
-  // 但规则说2345可以，需要单独允许：值[2,3,4,12]
-  if (JSON.stringify(vals) === JSON.stringify([2, 3, 4, 12])) return true;
-
-  return true; // 普通连续已通过上面循环验证
+  return true;
 }
 
 // 获取顺子最大值（用于比较）
@@ -142,6 +139,7 @@ export function buildPlay(cards: Card[]): Play | null {
 }
 
 // 检查是否可以压牌（新出的牌是否大于上一家）
+// 跑得快规则：同类型比点数大小，不存在炸弹通杀
 export function canBeat(newPlay: Play, lastPlay: Play): boolean {
   if (newPlay.type !== lastPlay.type) return false;
   return newPlay.maxValue > lastPlay.maxValue;
@@ -222,6 +220,7 @@ export function validatePlay(
   if (!newPlay) return { valid: false, reason: '无效牌型' };
   
   if (!canBeat(newPlay, lastPlay)) {
+    // 同类型但不够大
     if (newPlay.type !== lastPlay.type) {
       return { valid: false, reason: `必须出${getTypeName(lastPlay.type)}来压牌` };
     }
@@ -586,4 +585,66 @@ function getStraight4MaxValueFromCards(cards: Card[]): number {
   if (JSON.stringify(vals) === JSON.stringify([0, 1, 2, 11])) return -1; // A234最小
   if (JSON.stringify(vals) === JSON.stringify([2, 3, 4, 12])) return 12; // 2345
   return vals[vals.length - 1];
+}
+
+// ==========================================
+// 提示功能：推荐最优出牌
+// ==========================================
+
+/**
+ * 从手牌中找出能压上一家的最小合法出牌（提示）
+ * 若 lastPlay=null，返回手牌中价值最低的一组牌（优先对子/三张）
+ * @returns 推荐出牌的 Card[]，null 表示只能过牌
+ */
+export function getHintCards(hand: Card[], lastPlay: Play | null): Card[] | null {
+  if (hand.length === 0) return null;
+  const sorted = sortCards(hand);
+
+  if (!lastPlay) {
+    // 自由出牌：优先出对子>三张>顺子>单张（最小的）
+    const groups = groupByValue(sorted);
+    const triples = Object.values(groups).filter(g => g.length >= 3).map(g => g.slice(0, 3));
+    const pairs = Object.values(groups).filter(g => g.length >= 2).map(g => g.slice(0, 2));
+    const straight = findBestStraight4(sorted, null);
+    if (pairs.length > 0) return pairs[0];
+    if (triples.length > 0) return triples[0];
+    if (straight) return straight;
+    return [sorted[0]];
+  }
+
+  // 找能压的最小牌组
+  switch (lastPlay.type) {
+    case 'single': {
+      const bigger = sorted.filter(c => c.value > lastPlay.maxValue);
+      return bigger.length > 0 ? [bigger[0]] : null;
+    }
+    case 'pair': {
+      const gs = groupByValue(sorted);
+      const valid = Object.values(gs)
+        .filter(g => g.length >= 2 && g[0].value > lastPlay.maxValue)
+        .map(g => g.slice(0, 2));
+      return valid.length > 0 ? valid[0] : null;
+    }
+    case 'triple': {
+      const gs = groupByValue(sorted);
+      const valid = Object.values(gs)
+        .filter(g => g.length >= 3 && g[0].value > lastPlay.maxValue)
+        .map(g => g.slice(0, 3));
+      return valid.length > 0 ? valid[0] : null;
+    }
+    case 'quad': {
+      // 四张只能用更大的四张压
+      const gs = groupByValue(sorted);
+      const valid = Object.values(gs)
+        .filter(g => g.length >= 4 && g[0].value > lastPlay.maxValue)
+        .map(g => g.slice(0, 4));
+      return valid.length > 0 ? valid[0] : null;
+    }
+    case 'straight4': {
+      const better = findBestStraight4(sorted, lastPlay.maxValue);
+      return better ?? null;
+    }
+    default:
+      return null;
+  }
 }
