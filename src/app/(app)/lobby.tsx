@@ -1,8 +1,13 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, Pressable, TextInput,
-  ActivityIndicator, Modal, ScrollView, useWindowDimensions,
+  ActivityIndicator, Modal,
 } from 'react-native';
+import Animated, {
+  useSharedValue, useAnimatedStyle,
+  withTiming, withSpring, withDelay, withRepeat, withSequence,
+  Easing,
+} from 'react-native-reanimated';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Image } from 'expo-image';
@@ -15,62 +20,78 @@ import {
 import type { Profile } from '@/types/db';
 import { createDeck, dealCards, findDiamond3Owner } from '@/utils/gameLogic';
 import { useSession } from '@/ctx';
+import { initAudio, useLobbySound, useLobbyBGM } from '@/lib/sounds';
 
-// 资源图
-const BG_URL   = 'https://miaoda-site-img.cdn.bcebos.com/images/baidu_image_search_9cc9adcc-4157-415d-bea6-5c7ca69f8c7a.jpg';
-const CHAR_URL = 'https://miaoda-site-img.cdn.bcebos.com/images/baidu_image_search_60b04345-c9cf-4a3f-b2b3-d3d365b395b0.jpg';
+// 大厅本地素材（静态 import，避免 require 不被识别的 lint 问题）
+import imgBg from '../../../assets/lobby/bg.jpg';
+import imgIpChar from '../../../assets/lobby/ip_char.png';
+import imgBoxGeren from '../../../assets/lobby/box_geren.png';
+import imgBoxDibiao from '../../../assets/lobby/box_dibiao.png';
+import imgBtnChuanjian from '../../../assets/lobby/btn_chuanjian.png';
+import imgBtnJoinRoom from '../../../assets/lobby/btn_join_room.png';
+import imgBtnQy from '../../../assets/lobby/btn_qy.png';
+import imgBtnShop from '../../../assets/lobby/btn_shop.png';
+import imgBtnBack from '../../../assets/lobby/btn_back.png';
+import imgBtnSetting from '../../../assets/lobby/btn_setting.png';
+import imgIcoGonggao from '../../../assets/lobby/ico_gonggao.png';
+import imgText1 from '../../../assets/lobby/text1.png';
+import imgText2 from '../../../assets/lobby/text2.png';
+// 新增：豆包设计按钮
+import imgBtnAi from '../../../assets/lobby/btn_ai_new.png';
+import imgBtnCreateRoom from '../../../assets/lobby/btn_create_room_new.png';
+import imgBtnClassic from '../../../assets/lobby/btn_classic_new.png';
 
-// 导航栏配置
-const NAV_ITEMS = [
-  { key: 'settings',    label: '设置', icon: '⚙️' },
-  { key: 'mailbox',     label: '邮件', icon: '✉️' },
-  { key: 'friends',     label: '好友', icon: '👥' },
-  { key: 'leaderboard', label: '战绩', icon: '🏆' },
-  { key: 'shop',        label: '商城', icon: '🛍️' },
-  { key: 'profile',     label: '我的', icon: '👤' },
-];
-
-// 游戏模式配置
-const GAME_MODES = [
-  {
-    key: 'classic',
-    title: '经典跑得快',
-    sub: '匹配真实玩家 · 积分对战',
-    icon: '♠',
-    badge: '热门',
-    badgeColor: '#FF4444',
-    from: '#c8860a',
-    to: '#7a4e00',
-    glowColor: 'rgba(255,193,7,0.5)',
-  },
-  {
-    key: 'crazy',
-    title: '疯狂跑得快',
-    sub: '高倍积分 · 激烈厮杀',
-    icon: '♥',
-    badge: '火爆',
-    badgeColor: '#FF4444',
-    from: '#8b0000',
-    to: '#450000',
-    glowColor: 'rgba(255,68,68,0.45)',
-  },
-  {
-    key: 'room',
-    title: '好友房间',
-    sub: '创建 / 加入私人房间',
-    icon: '♦',
-    badge: '新',
-    badgeColor: '#00bcd4',
-    from: '#005f6b',
-    to: '#002b33',
-    glowColor: 'rgba(0,188,212,0.4)',
-  },
-];
+const ASSETS = {
+  bg: imgBg,
+  ipChar: imgIpChar,
+  boxGeren: imgBoxGeren,
+  boxDibiao: imgBoxDibiao,
+  btnChuanjian: imgBtnChuanjian,
+  btnJoinRoom: imgBtnJoinRoom,
+  btnQy: imgBtnQy,
+  btnShop: imgBtnShop,
+  btnBack: imgBtnBack,
+  btnSetting: imgBtnSetting,
+  icoGonggao: imgIcoGonggao,
+  text1: imgText1,
+  text2: imgText2,
+  // 新按钮
+  btnAi: imgBtnAi,
+  btnCreateRoom: imgBtnCreateRoom,
+  btnClassic: imgBtnClassic,
+};
 
 export default function LobbyScreen() {
   const router = useRouter();
-  const { width } = useWindowDimensions();
   const { session, isLoading: sessionLoading } = useSession();
+
+  // ── 音效 ────────────────────────────────────────────────────
+  const { playClick, playEnter, playMatch } = useLobbySound();
+  const bgm = useLobbyBGM();
+
+  // 音量控制面板显示状态
+  const [showVolPanel, setShowVolPanel] = useState(false);
+  const volPanelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 音量条触摸区域宽度（onLayout 获取）
+  const volBarWidth = useRef(160);
+
+  /** 显示音量面板并 4s 后自动收起 */
+  const openVolPanel = () => {
+    playClick();
+    setShowVolPanel(true);
+    if (volPanelTimer.current) clearTimeout(volPanelTimer.current);
+    volPanelTimer.current = setTimeout(() => setShowVolPanel(false), 4000);
+  };
+
+  /** 触摸音量条调节音量 */
+  const handleVolBarTouch = (pageX: number, barX: number) => {
+    const ratio = Math.max(0, Math.min(1, (pageX - barX) / volBarWidth.current));
+    void bgm.setVolume(ratio);
+    // 重置自动收起计时
+    if (volPanelTimer.current) clearTimeout(volPanelTimer.current);
+    volPanelTimer.current = setTimeout(() => setShowVolPanel(false), 4000);
+  };
 
   const [profile,      setProfile]      = useState<Profile | null>(null);
   const [topPlayers,   setTopPlayers]   = useState<Profile[]>([]);
@@ -92,6 +113,15 @@ export default function LobbyScreen() {
   useFocusEffect(
     useCallback(() => {
       if (session?.user) loadData(session.user.id);
+      // 大厅获得焦点：播放 BGM
+      bgm.play();
+      return () => {
+        // 离开大厅：暂停 BGM
+        bgm.pause();
+        setShowVolPanel(false);
+      };
+    // bgm 引用稳定，session.user.id 变化时重新绑定
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session?.user?.id])
   );
 
@@ -113,13 +143,6 @@ export default function LobbyScreen() {
   };
 
   const btnDisabled = loading || matchLoading || sessionLoading;
-
-  // ── 游戏模式入口 ──────────────────────────────────────────────
-  const onPressMode = (key: string) => {
-    if (key === 'classic') handleClassicMatch();
-    else if (key === 'crazy') handleCrazyMatch();
-    else { setShowRoomModal(true); setRoomCode(''); setErrorMsg(''); }
-  };
 
   const handleClassicMatch = async () => {
     const user = getReadyUser(); if (!user) return;
@@ -236,208 +259,478 @@ export default function LobbyScreen() {
     router.push({ pathname: '/(app)/game', params: { roomId, userId } });
   };
 
-  const isWide = width >= 600;
   const nickname = profile?.nickname ?? '游客';
   const level    = profile?.level    ?? 1;
   const beans    = profile?.beans    ?? 0;
 
+  // ── 入场动画共享值 ────────────────────────────────────────────
+  // 顶栏（从上滑入）
+  const topBarOpacity = useSharedValue(0);
+  const topBarY       = useSharedValue(-44);
+  // 玩家信息框（从左滑入）
+  // IP 立绘（从右下弹入）
+  const ipOpacity = useSharedValue(0);
+  const ipX       = useSharedValue(70);
+  const ipY       = useSharedValue(60);
+  // IP 立绘循环浮动
+  // ── 立绘浮动
+  const ipFloat = useSharedValue(0);
+  // 排行榜（从左淡入）
+  const rankOpacity = useSharedValue(0);
+  const rankX       = useSharedValue(-40);
+  // 辅助行 + 匹配行（从底部淡入）
+  const auxOpacity = useSharedValue(0);
+  const auxY       = useSharedValue(60);
+  const matchOpacity = useSharedValue(0);
+  const matchY       = useSharedValue(50);
+
+  // ── 入场动画 + 立绘浮动 ──────────────────────────────────────
+  useEffect(() => {
+    const ease = Easing.out(Easing.cubic);
+    // 顶栏
+    topBarOpacity.value = withDelay(0,   withTiming(1, { duration: 350, easing: ease }));
+    topBarY.value       = withDelay(0,   withTiming(0, { duration: 350, easing: ease }));
+    // 玩家信息框
+    // IP 立绘（弹性）
+    ipOpacity.value = withDelay(150, withTiming(1, { duration: 420, easing: ease }));
+    ipX.value       = withDelay(150, withSpring(0,  { damping: 18, stiffness: 120 }));
+    ipY.value       = withDelay(150, withSpring(0,  { damping: 16, stiffness: 100 }));
+    // 排行榜
+    rankOpacity.value = withDelay(260, withTiming(1, { duration: 380, easing: ease }));
+    rankX.value       = withDelay(260, withTiming(0, { duration: 380, easing: ease }));
+    // 辅助行（创建房间 + AI对战）
+    auxOpacity.value = withDelay(340, withTiming(1, { duration: 380, easing: ease }));
+    auxY.value       = withDelay(340, withTiming(0, { duration: 380, easing: ease }));
+    // 匹配行（经典 + 疯狂）
+    matchOpacity.value = withDelay(420, withTiming(1, { duration: 340, easing: ease }));
+    matchY.value       = withDelay(420, withTiming(0, { duration: 340, easing: ease }));
+
+    // IP 立绘呼吸浮动（进入后 0.8s 启动）
+    const timer = setTimeout(() => {
+      ipFloat.value = withRepeat(
+        withSequence(
+          withTiming(-10, { duration: 1800, easing: Easing.inOut(Easing.sin) }),
+          withTiming(0,   { duration: 1800, easing: Easing.inOut(Easing.sin) }),
+        ),
+        -1, // 无限循环
+        false,
+      );
+    }, 800);
+
+    // 入场音效（200ms 后播放，与动画节奏同步）
+    const sfxTimer = setTimeout(() => {
+      void initAudio().then(() => playEnter());
+    }, 200);
+
+    return () => { clearTimeout(timer); clearTimeout(sfxTimer); };
+  }, []);
+
+  // ── Animated 样式 ────────────────────────────────────────────
+  const topBarStyle    = useAnimatedStyle(() => ({ opacity: topBarOpacity.value, transform: [{ translateY: topBarY.value }] }));
+  const ipStyle        = useAnimatedStyle(() => ({ opacity: ipOpacity.value, transform: [{ translateX: ipX.value }, { translateY: ipY.value + ipFloat.value }] }));
+  const rankStyle      = useAnimatedStyle(() => ({ opacity: rankOpacity.value, transform: [{ translateX: rankX.value }] }));
+  
+  const auxStyle       = useAnimatedStyle(() => ({ opacity: auxOpacity.value, transform: [{ translateY: auxY.value }] }));
+  const matchStyle     = useAnimatedStyle(() => ({ opacity: matchOpacity.value, transform: [{ translateY: matchY.value }] }));
+
+  // 底部按钮区高度（两行：64+56+间距约 140）
+
   return (
-    <View style={{ flex: 1, backgroundColor: '#0e0212' }}>
+    <View style={{ flex: 1, backgroundColor: '#0D0818' }}>
       <StatusBar style="light" hidden />
 
-      {/* ── 全屏背景 ── */}
+      {/* ══ 全屏背景 ══ */}
       <Image
-        source={{ uri: BG_URL }}
+        source={ASSETS.bg}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
         contentFit="cover"
       />
-      {/* 双层渐变遮罩：底部加深，顶部轻遮 */}
-      <View style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(14,2,18,0.68)' }} />
-      {/* 底部向上加深区域（深色渐变感） */}
-      <View style={{
-        position: 'absolute', bottom: 0, left: 0, right: 0, height: 380,
-        backgroundColor: 'rgba(14,2,18,0)',
-      }} />
+      {/* 全局暗化遮罩 */}
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+        backgroundColor: 'rgba(8,3,22,0.42)' }} />
+      {/* 顶部渐变遮罩 */}
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 70,
+        backgroundColor: 'rgba(8,3,22,0.75)' }} />
+      {/* 底部渐变遮罩 */}
+      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 64,
+        backgroundColor: 'rgba(6,2,18,0.92)' }} />
 
-      {/* ── 顶部玩家信息栏 ── */}
-      <View style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: 60,
-        flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, zIndex: 30,
-        backgroundColor: 'rgba(10,2,15,0.75)',
-        borderBottomWidth: 1, borderBottomColor: 'rgba(255,193,7,0.15)',
-      }}>
+      {/* ══ 主体 flex 列布局 ══ */}
+      <View style={{ flex: 1, flexDirection: 'column' }}>
 
-        {/* 玩家头像+信息 */}
-        <Pressable onPress={() => router.push('/(app)/profile')}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1 }}>
-          {/* 头像圆 */}
-          <View style={{
-            width: 40, height: 40, borderRadius: 20,
-            backgroundColor: '#7B3F9E',
-            alignItems: 'center', justifyContent: 'center',
-            borderWidth: 2, borderColor: '#FFD700',
-            boxShadow: [{ offsetX: 0, offsetY: 0, blurRadius: 8, color: 'rgba(255,215,0,0.5)' }],
-          }}>
-            <Text style={{ fontSize: 18 }}>👤</Text>
-          </View>
-          <View>
-            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }} numberOfLines={1}>{nickname}</Text>
-            {/* 等级徽章 */}
+        {/* ── 顶部栏 ── */}
+        <Animated.View style={[{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+          height: 52, paddingHorizontal: 14, zIndex: 50,
+        }, topBarStyle]}>
+
+          {/* 左：设置齿轮 */}
+          <Pressable cssInterop={false}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, padding: 4 })}
+            onPress={() => { playClick(); router.push('/(app)/settings'); }}>
             <View style={{
-              flexDirection: 'row', alignItems: 'center', gap: 3,
-              backgroundColor: 'rgba(255,193,7,0.18)', borderRadius: 8,
-              paddingHorizontal: 6, paddingVertical: 1,
-              borderWidth: 1, borderColor: 'rgba(255,193,7,0.4)',
-              alignSelf: 'flex-start', marginTop: 1,
+              width: 38, height: 38, borderRadius: 10,
+              backgroundColor: 'rgba(0,0,0,0.40)',
+              borderWidth: 1, borderColor: 'rgba(212,175,55,0.35)',
+              alignItems: 'center', justifyContent: 'center',
             }}>
-              <Text style={{ color: '#FFD700', fontSize: 9, fontWeight: '700' }}>LV.{level}</Text>
+              <Text style={{ fontSize: 20 }}>⚙️</Text>
+            </View>
+          </Pressable>
+
+          {/* 中：书法大字 */}
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <Text style={{
+              color: '#F5D87A',
+              fontSize: 24,
+              fontWeight: '900',
+              letterSpacing: 6,
+              textShadowColor: 'rgba(212,175,55,0.85)',
+              textShadowRadius: 14,
+              textShadowOffset: { width: 0, height: 0 },
+            }}>
+              钟山跑得快
+            </Text>
+            {/* 金色装饰横线 */}
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1,
+            }}>
+              <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(212,175,55,0.5)' }} />
+              <Text style={{ color: '#D4AF37', fontSize: 9, letterSpacing: 3 }}>♠ ♥ ♣ ♦</Text>
+              <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(212,175,55,0.5)' }} />
             </View>
           </View>
-        </Pressable>
 
-        {/* 标题居中 */}
-        <Text style={{
-          position: 'absolute', left: 0, right: 0, textAlign: 'center',
-          color: '#FFD700', fontSize: isWide ? 26 : 22, fontWeight: '900',
-          letterSpacing: 6, pointerEvents: 'none',
-          textShadowColor: 'rgba(255,100,0,0.7)', textShadowRadius: 10, textShadowOffset: { width: 0, height: 0 },
-        }}>跑 得 快</Text>
+          {/* 右：金币+豆子+音乐+梅花 */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {/* 金币 + 豆子数量 */}
+            <Pressable cssInterop={false}
+              style={({ pressed }) => ({
+                flexDirection: 'row', alignItems: 'center', gap: 5,
+                backgroundColor: pressed ? 'rgba(212,175,55,0.22)' : 'rgba(212,175,55,0.10)',
+                borderRadius: 18, paddingHorizontal: 10, paddingVertical: 5,
+                borderWidth: 1, borderColor: 'rgba(212,175,55,0.4)',
+              })}
+              onPress={() => { playClick(); router.push('/(app)/shop'); }}>
+              <Text style={{ fontSize: 14 }}>🪙</Text>
+              <Text style={{ color: '#F5D87A', fontSize: 13, fontWeight: '800' }}>{beans.toLocaleString()}</Text>
+            </Pressable>
 
-        {/* 右侧：豆子 + 设置 */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Pressable onPress={() => router.push('/(app)/shop')}
-            style={{
-              flexDirection: 'row', alignItems: 'center', gap: 4,
-              backgroundColor: 'rgba(255,193,7,0.12)', borderRadius: 16,
-              paddingHorizontal: 10, paddingVertical: 5,
-              borderWidth: 1, borderColor: 'rgba(255,193,7,0.4)',
-              boxShadow: [{ offsetX: 0, offsetY: 0, blurRadius: 6, color: 'rgba(255,193,7,0.25)' }],
+            {/* 音乐按钮 */}
+            <Pressable cssInterop={false}
+              style={({ pressed }) => ({
+                width: 36, height: 36, borderRadius: 18,
+                backgroundColor: showVolPanel ? 'rgba(212,175,55,0.20)' : 'rgba(0,0,0,0.40)',
+                alignItems: 'center', justifyContent: 'center',
+                borderWidth: 1, borderColor: showVolPanel ? 'rgba(212,175,55,0.5)' : 'rgba(255,255,255,0.18)',
+                opacity: pressed ? 0.7 : 1,
+              })}
+              onPress={openVolPanel}>
+              <Text style={{ fontSize: 16 }}>{bgm.muted || bgm.volume === 0 ? '🔇' : '🎵'}</Text>
+            </Pressable>
+
+            {/* 梅花装饰图标 */}
+            <View style={{
+              width: 36, height: 36, borderRadius: 18,
+              backgroundColor: 'rgba(0,0,0,0.35)',
+              alignItems: 'center', justifyContent: 'center',
+              borderWidth: 1, borderColor: 'rgba(212,175,55,0.25)',
             }}>
-            <Text style={{ fontSize: 13 }}>🪙</Text>
-            <Text style={{ color: '#FFD700', fontSize: 12, fontWeight: '800' }}>{beans.toLocaleString()}</Text>
-          </Pressable>
-          <Pressable onPress={() => router.push('/(app)/settings')}
-            style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center',
-              backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 17 }}>
-            <Text style={{ fontSize: 16 }}>⚙️</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* ── 主体内容区 ── */}
-      <View style={{ position: 'absolute', top: 60, left: 0, right: 0, bottom: 64 }}>
-        {isWide ? (
-          /* ════ 宽屏：三栏横向布局 ════ */
-          <View style={{ flex: 1, flexDirection: 'row' }}>
-
-            {/* 左：排行榜 */}
-            <View style={{ width: 190, paddingLeft: 14, paddingTop: 16, justifyContent: 'center' }}>
-              <RankCard topPlayers={topPlayers} router={router} />
-              {errorMsg
-                ? <Text style={{ color: '#FF6B6B', fontSize: 11, marginTop: 8, textAlign: 'center' }}>{errorMsg}</Text>
-                : null}
+              <Text style={{ color: '#D4AF37', fontSize: 18, fontWeight: '900' }}>♣</Text>
             </View>
+          </View>
+        </Animated.View>
 
-            {/* 中：立绘 */}
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end' }}>
-              <Image source={{ uri: CHAR_URL }}
-                style={{ width: '85%', height: '105%' }}
-                contentFit="contain" contentPosition="bottom" />
+        {/* 音量控制展开面板（浮于顶栏下方） */}
+        {showVolPanel && (
+          <View style={{
+            position: 'absolute', top: 54, right: 52, zIndex: 60,
+            flexDirection: 'row', alignItems: 'center', gap: 8,
+            backgroundColor: 'rgba(8,2,28,0.92)',
+            borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7,
+            borderWidth: 1, borderColor: 'rgba(255,215,0,0.28)',
+          }}>
+            <Pressable cssInterop={false}
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+              onPress={() => { void bgm.toggleMute(); }}>
+              <Text style={{ fontSize: 15 }}>{bgm.muted || bgm.volume === 0 ? '🔇' : '🔊'}</Text>
+            </Pressable>
+            <View
+              onLayout={(e) => { volBarWidth.current = e.nativeEvent.layout.width; }}
+              onStartShouldSetResponder={() => true}
+              onMoveShouldSetResponder={() => true}
+              onResponderGrant={(e) => {
+                const barX = e.nativeEvent.pageX - (e.nativeEvent as unknown as { locationX: number }).locationX;
+                handleVolBarTouch(e.nativeEvent.pageX, barX);
+              }}
+              onResponderMove={(e) => {
+                const barX = e.nativeEvent.pageX - (e.nativeEvent as unknown as { locationX: number }).locationX;
+                handleVolBarTouch(e.nativeEvent.pageX, barX);
+              }}
+              style={{ width: 90, height: 20, justifyContent: 'center' }}>
+              <View style={{ height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)' }} />
+              <View style={{
+                position: 'absolute', left: 0, top: 8, height: 4, borderRadius: 2,
+                backgroundColor: '#FFD700',
+                width: `${(bgm.muted ? 0 : bgm.volume) * 100}%`,
+              }} />
+              <View style={{
+                position: 'absolute', top: 5,
+                left: `${(bgm.muted ? 0 : bgm.volume) * 100}%`,
+                marginLeft: -6, width: 12, height: 12, borderRadius: 6,
+                backgroundColor: '#FFD700', borderWidth: 1.5, borderColor: '#fff',
+              }} />
             </View>
+            <Text style={{ color: 'rgba(255,215,0,0.85)', fontSize: 10, fontWeight: '700', minWidth: 26 }}>
+              {bgm.muted ? '0%' : `${Math.round(bgm.volume * 100)}%`}
+            </Text>
+          </View>
+        )}
 
-            {/* 右：游戏模式卡片 */}
-            <View style={{ width: 210, paddingRight: 14, justifyContent: 'center', gap: 10 }}>
-              {GAME_MODES.map(m => (
-                <ModeCard key={m.key} mode={m}
-                  disabled={btnDisabled}
-                  loading={(m.key === 'classic' || m.key === 'crazy') && (matchLoading || sessionLoading)}
-                  onPress={() => onPressMode(m.key)}
-                />
+        {/* ── 主体三段式 ── */}
+        <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden' }}>
+
+          {/* 左侧：好友排行面板 */}
+          <Animated.View style={[{
+            width: 170, paddingLeft: 12, paddingRight: 6, paddingTop: 8,
+            justifyContent: 'flex-start',
+          }, rankStyle]}>
+            {/* 金色边框面板 */}
+            <View style={{
+              backgroundColor: 'rgba(10,5,25,0.82)',
+              borderWidth: 1.5, borderColor: '#D4AF37',
+              borderRadius: 14,
+              paddingVertical: 10, paddingHorizontal: 10,
+              boxShadow: [{ offsetX: 0, offsetY: 0, blurRadius: 18, color: 'rgba(212,175,55,0.25)' }],
+            }}>
+              {/* 面板标题 */}
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                marginBottom: 10, gap: 6,
+              }}>
+                <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(212,175,55,0.4)' }} />
+                <Text style={{ color: '#D4AF37', fontSize: 12, fontWeight: '800', letterSpacing: 2 }}>好友排行</Text>
+                <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(212,175,55,0.4)' }} />
+              </View>
+
+              {/* 玩家列表 */}
+              {(topPlayers.length > 0 ? topPlayers.slice(0, 3) : [null, null, null]).map((p, i) => (
+                <View key={i} style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 8,
+                  paddingVertical: 6,
+                  borderBottomWidth: i < 2 ? 1 : 0,
+                  borderBottomColor: 'rgba(212,175,55,0.12)',
+                }}>
+                  {/* 排名 */}
+                  <Text style={{
+                    color: i === 0 ? '#FFD700' : i === 1 ? '#C0C0C0' : '#CD7F32',
+                    fontSize: 13, fontWeight: '900', width: 18, textAlign: 'center',
+                  }}>{i + 1}</Text>
+                  {/* 头像 */}
+                  <View style={{
+                    width: 30, height: 30, borderRadius: 15,
+                    backgroundColor: '#2a1b38', alignItems: 'center', justifyContent: 'center',
+                    borderWidth: 1.5,
+                    borderColor: i === 0 ? '#FFD700' : i === 1 ? '#C0C0C0' : '#CD7F32',
+                  }}>
+                    <Text style={{ fontSize: 14 }}>👤</Text>
+                  </View>
+                  {/* 昵称 + 豆子 */}
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }} numberOfLines={1}>
+                      {p ? p.nickname : '---'}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 }}>
+                      <Text style={{ fontSize: 9 }}>🪙</Text>
+                      <Text style={{ color: '#D4AF37', fontSize: 10, fontWeight: '600' }}>
+                        {p ? (p.beans ?? 0).toLocaleString() : '---'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
               ))}
-              {/* 小功能行 */}
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-                <SmallBtn label="加入房间" disabled={btnDisabled}
-                  onPress={() => { setShowJoinModal(true); setJoinCode(''); setErrorMsg(''); }} />
-                <SmallBtn label="AI练习" disabled={btnDisabled}
-                  onPress={() => setShowAIModal(true)} />
-              </View>
-              {errorMsg
-                ? <Text style={{ color: '#FF6B6B', fontSize: 11, textAlign: 'center' }}>{errorMsg}</Text>
-                : null}
+
+              {/* 查看全部按钮 */}
+              <Pressable cssInterop={false}
+                style={({ pressed }) => ({
+                  marginTop: 10,
+                  backgroundColor: pressed ? '#B8960A' : '#D4AF37',
+                  borderRadius: 10, paddingVertical: 7,
+                  alignItems: 'center',
+                })}
+                onPress={() => { playClick(); router.push('/(app)/leaderboard'); }}>
+                <Text style={{ color: '#0D0818', fontSize: 12, fontWeight: '800' }}>查看全部</Text>
+              </Pressable>
             </View>
+
+            {/* 玩家信息卡（面板下方） */}
+            <Pressable cssInterop={false}
+              style={({ pressed }) => ({
+                marginTop: 10, opacity: pressed ? 0.85 : 1,
+              })}
+              onPress={() => { playClick(); router.push('/(app)/profile'); }}>
+              <View style={{
+                backgroundColor: 'rgba(10,5,25,0.82)',
+                borderWidth: 1, borderColor: 'rgba(212,175,55,0.5)',
+                borderRadius: 12, paddingVertical: 8, paddingHorizontal: 10,
+                flexDirection: 'row', alignItems: 'center', gap: 8,
+              }}>
+                <View style={{
+                  width: 32, height: 32, borderRadius: 16,
+                  backgroundColor: '#2a1b38', alignItems: 'center', justifyContent: 'center',
+                  borderWidth: 1.5, borderColor: '#D4AF37',
+                }}>
+                  <Text style={{ fontSize: 16 }}>👤</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>{nickname}</Text>
+                  <Text style={{ color: '#D4AF37', fontSize: 10, fontWeight: '600' }}>LV.{level}</Text>
+                </View>
+              </View>
+            </Pressable>
+          </Animated.View>
+
+          {/* 中间：IP 立绘 */}
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', position: 'relative' }}>
+            {/* 金色粒子光效（装饰圆点） */}
+            {([
+              { top: 60,  left: 30,  size: 4, opacity: 0.6  },
+              { top: 40,  left: 80,  size: 3, opacity: 0.45 },
+              { top: 80,  right: 50, size: 5, opacity: 0.55 },
+              { top: 120, left: 16,  size: 3, opacity: 0.4  },
+              { top: 24,  right: 70, size: 4, opacity: 0.5  },
+              { top: 150, right: 28, size: 6, opacity: 0.35 },
+            ] as Array<{ top: number; left?: number; right?: number; size: number; opacity: number }>
+            ).map((dot, idx) => (
+              <View key={idx} style={{
+                position: 'absolute',
+                top: dot.top,
+                ...(dot.left  !== undefined ? { left:  dot.left  } : {}),
+                ...(dot.right !== undefined ? { right: dot.right } : {}),
+                width: dot.size, height: dot.size, borderRadius: dot.size / 2,
+                backgroundColor: '#D4AF37', opacity: dot.opacity,
+              }} />
+            ))}
+
+            {/* IP 立绘 */}
+            <Animated.View style={ipStyle}>
+              <Image
+                source={ASSETS.ipChar}
+                style={{ width: 340, height: 520 }}
+                contentFit="contain"
+                contentPosition="bottom"
+              />
+            </Animated.View>
           </View>
 
-        ) : (
-          /* ════ 窄屏：竖向滚动布局 ════ */
-          <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
+          {/* 右侧：3 个竖排大按钮 */}
+          <Animated.View style={[{
+            width: 175, paddingRight: 12, paddingLeft: 6,
+            justifyContent: 'center', gap: 12,
+          }, auxStyle]}>
 
-            {/* 立绘 + 排行榜叠加区 */}
-            <View style={{ height: 260, position: 'relative' }}>
-              <Image source={{ uri: CHAR_URL }}
-                style={{ position: 'absolute', right: 0, bottom: 0, width: '62%', height: '110%' }}
-                contentFit="contain" contentPosition="bottom" />
-              <View style={{ position: 'absolute', left: 12, top: 12, width: width * 0.46 }}>
-                <RankCard topPlayers={topPlayers} router={router} compact />
-              </View>
-            </View>
+            {/* 经典跑得快（豆包12，800x449横版图） */}
+            <Pressable cssInterop={false}
+              disabled={btnDisabled}
+              style={({ pressed }) => ({
+                opacity: btnDisabled ? 0.6 : pressed ? 0.80 : 1,
+                alignItems: 'center', justifyContent: 'center',
+              })}
+              onPress={() => { playMatch(); handleClassicMatch(); }}>
+              {(matchLoading || sessionLoading) ? (
+                <View style={{
+                  width: 155, height: 87, borderRadius: 14,
+                  backgroundColor: '#c8830d', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <ActivityIndicator color="#fff" size="small" />
+                </View>
+              ) : (
+                <Image source={ASSETS.btnClassic}
+                  style={{ width: 155, height: 87 }}
+                  contentFit="contain" />
+              )}
+            </Pressable>
+
+            {/* 人机对战（豆包8，600x600正方形图） */}
+            <Pressable cssInterop={false}
+              disabled={btnDisabled}
+              style={({ pressed }) => ({
+                opacity: btnDisabled ? 0.6 : pressed ? 0.80 : 1,
+                alignItems: 'center', justifyContent: 'center',
+              })}
+              onPress={() => { playClick(); setShowAIModal(true); }}>
+              <Image source={ASSETS.btnAi}
+                style={{ width: 140, height: 140 }}
+                contentFit="contain" />
+            </Pressable>
+
+            {/* 创建房间（豆包9，600x600正方形图） */}
+            <Pressable cssInterop={false}
+              disabled={btnDisabled}
+              style={({ pressed }) => ({
+                opacity: btnDisabled ? 0.6 : pressed ? 0.80 : 1,
+                alignItems: 'center', justifyContent: 'center',
+              })}
+              onPress={() => { playClick(); setShowRoomModal(true); setRoomCode(''); setErrorMsg(''); }}>
+              <Image source={ASSETS.btnCreateRoom}
+                style={{ width: 140, height: 140 }}
+                contentFit="contain" />
+            </Pressable>
 
             {/* 错误提示 */}
-            {errorMsg
-              ? <Text style={{ color: '#FF6B6B', fontSize: 12, textAlign: 'center', marginTop: 4, paddingHorizontal: 16 }}>{errorMsg}</Text>
-              : null}
+            {errorMsg ? (
+              <Text style={{ color: '#FF6B6B', fontSize: 11, textAlign: 'center' }}>{errorMsg}</Text>
+            ) : null}
+          </Animated.View>
+        </View>
 
-            {/* 游戏模式卡片 */}
-            <View style={{ paddingHorizontal: 14, marginTop: 10, gap: 10 }}>
-              {GAME_MODES.map(m => (
-                <ModeCard key={m.key} mode={m} wide
-                  disabled={btnDisabled}
-                  loading={(m.key === 'classic' || m.key === 'crazy') && (matchLoading || sessionLoading)}
-                  onPress={() => onPressMode(m.key)}
-                />
-              ))}
-            </View>
-
-            {/* 小功能行 */}
-            <View style={{ flexDirection: 'row', paddingHorizontal: 14, marginTop: 10, gap: 10 }}>
-              <SmallBtn label="♣ 加入房间" flex disabled={btnDisabled}
-                onPress={() => { setShowJoinModal(true); setJoinCode(''); setErrorMsg(''); }} />
-              <SmallBtn label="🤖 AI练习" flex disabled={btnDisabled}
-                onPress={() => setShowAIModal(true)} />
-            </View>
-          </ScrollView>
-        )}
+        {/* ── 底部导航栏（8 图标） ── */}
+        <Animated.View style={[{
+          height: 60, flexDirection: 'row', alignItems: 'center',
+          backgroundColor: 'rgba(6,2,18,0.90)',
+          borderTopWidth: 1, borderTopColor: 'rgba(212,175,55,0.22)',
+          paddingHorizontal: 8,
+        }, matchStyle]}>
+          {([
+            { icon: '⚙️', label: '设置',   onPress: () => router.push('/(app)/settings') },
+            { icon: '📬', label: '邮件',   onPress: () => router.push('/(app)/mailbox'),   badge: unreadMail },
+            { icon: '📨', label: '邮件',   onPress: () => router.push('/(app)/mailbox') },
+            { icon: '🔗', label: '分享',   onPress: () => {} },
+            { icon: '📖', label: '玩法',   onPress: () => router.push('/(app)/achievements') },
+            { icon: '💬', label: '反馈',   onPress: () => {} },
+            { icon: '🏆', label: '战绩',   onPress: () => router.push('/(app)/profile') },
+            { icon: '🛒', label: '商城',   onPress: () => router.push('/(app)/shop') },
+          ] as const).map((item, idx) => (
+            <Pressable key={idx} cssInterop={false}
+              style={({ pressed }) => ({
+                flex: 1, alignItems: 'center', justifyContent: 'center',
+                opacity: pressed ? 0.65 : 1, paddingVertical: 4,
+              })}
+              onPress={() => { playClick(); item.onPress(); }}>
+              <View style={{ position: 'relative' }}>
+                <Text style={{ fontSize: 18 }}>{item.icon}</Text>
+                {(item as { badge?: number }).badge ? (
+                  <View style={{
+                    position: 'absolute', top: -4, right: -6,
+                    backgroundColor: '#C93737', borderRadius: 8,
+                    minWidth: 14, height: 14, alignItems: 'center', justifyContent: 'center',
+                    paddingHorizontal: 2,
+                  }}>
+                    <Text style={{ color: '#fff', fontSize: 8, fontWeight: '900' }}>
+                      {String((item as { badge?: number }).badge)}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 9, marginTop: 1, fontWeight: '600' }}>
+                {item.label}
+              </Text>
+            </Pressable>
+          ))}
+        </Animated.View>
       </View>
 
-      {/* ── 底部导航栏 ── */}
-      <View style={{
-        position: 'absolute', bottom: 0, left: 0, right: 0, height: 64,
-        flexDirection: 'row', alignItems: 'center',
-        backgroundColor: 'rgba(8,2,12,0.95)',
-        borderTopWidth: 1, borderTopColor: 'rgba(255,193,7,0.12)',
-        paddingHorizontal: 4, zIndex: 30,
-      }}>
-        {NAV_ITEMS.map(item => (
-          <Pressable key={item.key}
-            onPress={() => router.push(`/(app)/${item.key}` as never)}
-            style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, paddingVertical: 6 }}>
-            <View style={{ position: 'relative' }}>
-              <Text style={{ fontSize: 22 }}>{item.icon}</Text>
-              {item.key === 'mailbox' && unreadMail > 0 && (
-                <View style={{
-                  position: 'absolute', top: -4, right: -6, minWidth: 16, height: 16,
-                  borderRadius: 8, backgroundColor: '#FF4444',
-                  alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2,
-                }}>
-                  <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>{unreadMail}</Text>
-                </View>
-              )}
-            </View>
-            <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: '500' }}>{item.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* ════ 弹窗 ════ */}
+      {/* ══ 弹窗 ══ */}
 
       {/* 创建/开始房间 */}
       <GameModal visible={showRoomModal} title={roomCode ? '房间已创建' : '创建私人房间'}
@@ -526,80 +819,6 @@ export default function LobbyScreen() {
   );
 }
 
-// ─── 子组件：游戏模式卡片 ─────────────────────────────────────────
-type ModeCardProps = {
-  mode: typeof GAME_MODES[number];
-  disabled?: boolean; loading?: boolean; wide?: boolean;
-  onPress: () => void;
-};
-function ModeCard({ mode, disabled, loading, wide, onPress }: ModeCardProps) {
-  return (
-    <Pressable onPress={onPress} disabled={disabled}
-      style={({ pressed }) => ({
-        height: wide ? 70 : 64,
-        borderRadius: 16,
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 16,
-        gap: 12,
-        backgroundColor: pressed ? mode.to : mode.from,
-        opacity: disabled ? 0.6 : 1,
-        boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 16, color: mode.glowColor }],
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.12)',
-      })}>
-
-      {/* 大花色图标 */}
-      <View style={{
-        width: 42, height: 42, borderRadius: 21,
-        backgroundColor: 'rgba(0,0,0,0.3)',
-        alignItems: 'center', justifyContent: 'center',
-      }}>
-        <Text style={{ fontSize: 22, color: '#fff' }}>{mode.icon}</Text>
-      </View>
-
-      {/* 文字 */}
-      <View style={{ flex: 1 }}>
-        <Text style={{ color: '#fff', fontWeight: '800', fontSize: wide ? 17 : 15 }}>{mode.title}</Text>
-        <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, marginTop: 2 }}>{mode.sub}</Text>
-      </View>
-
-      {/* 徽章 / loading */}
-      {loading
-        ? <ActivityIndicator color="#fff" size="small" />
-        : (
-          <View style={{
-            backgroundColor: mode.badgeColor, borderRadius: 10,
-            paddingHorizontal: 8, paddingVertical: 3,
-          }}>
-            <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{mode.badge}</Text>
-          </View>
-        )
-      }
-    </Pressable>
-  );
-}
-
-// ─── 子组件：小功能按钮 ───────────────────────────────────────────
-function SmallBtn({ label, onPress, disabled, flex }: {
-  label: string; onPress: () => void; disabled?: boolean; flex?: boolean;
-}) {
-  return (
-    <Pressable onPress={onPress} disabled={disabled}
-      style={({ pressed }) => ({
-        flex: flex ? 1 : undefined,
-        height: 42, borderRadius: 21,
-        alignItems: 'center', justifyContent: 'center',
-        paddingHorizontal: 16,
-        backgroundColor: pressed ? 'rgba(255,193,7,0.15)' : 'rgba(255,193,7,0.08)',
-        borderWidth: 1, borderColor: 'rgba(255,193,7,0.3)',
-        opacity: disabled ? 0.5 : 1,
-      })}>
-      <Text style={{ color: 'rgba(255,215,0,0.85)', fontWeight: '600', fontSize: 13 }}>{label}</Text>
-    </Pressable>
-  );
-}
-
 // ─── 子组件：排行榜卡片 ────────────────────────────────────────────
 const RANK_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
 const RANK_LABEL  = ['1ST', '2ND', '3RD'];
@@ -611,42 +830,48 @@ function RankCard({ topPlayers, router, compact }: RankCardProps) {
   const list = topPlayers.length > 0 ? topPlayers.slice(0, 3) : [null, null, null];
   return (
     <View style={{
-      borderRadius: 16,
-      padding: compact ? 10 : 14,
-      backgroundColor: 'rgba(8,2,14,0.82)',
-      borderWidth: 1, borderColor: 'rgba(255,193,7,0.25)',
-      boxShadow: [{ offsetX: 0, offsetY: 0, blurRadius: 20, color: 'rgba(255,193,7,0.15)' }],
+      borderRadius: 18,
+      padding: compact ? 10 : 16,
+      backgroundColor: 'rgba(6,2,16,0.92)',
+      borderWidth: 1.5, borderColor: 'rgba(212,175,55,0.3)',
+      boxShadow: [
+        { offsetX: 0, offsetY: 0, blurRadius: 24, color: 'rgba(212,175,55,0.18)' },
+        { offsetX: 0, offsetY: 4, blurRadius: 12, color: 'rgba(0,0,0,0.6)' },
+      ],
     }}>
       {/* 标题 */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: compact ? 8 : 12 }}>
         <Text style={{ fontSize: compact ? 14 : 16 }}>🏆</Text>
-        <Text style={{ color: '#FFD700', fontWeight: '800', fontSize: compact ? 12 : 14, letterSpacing: 1 }}>好友排行</Text>
+        <Text style={{ color: '#D4AF37', fontWeight: '800', fontSize: compact ? 12 : 14, letterSpacing: 2 }}>好友排行</Text>
       </View>
 
       {list.map((p, i) => (
         <View key={i} style={{
           flexDirection: 'row', alignItems: 'center',
-          marginBottom: compact ? 6 : 8, gap: 8,
+          marginBottom: compact ? 7 : 10, gap: 8,
+          backgroundColor: i === 0 ? 'rgba(212,175,55,0.1)' : 'transparent',
+          borderRadius: 10, paddingVertical: i === 0 ? 3 : 0, paddingHorizontal: i === 0 ? 4 : 0,
         }}>
           {/* 名次徽章 */}
           <View style={{
-            width: compact ? 28 : 34, height: compact ? 28 : 34,
-            borderRadius: compact ? 7 : 9,
-            backgroundColor: `${RANK_COLORS[i]}20`,
+            width: compact ? 26 : 32, height: compact ? 26 : 32,
+            borderRadius: compact ? 6 : 8,
+            backgroundColor: `${RANK_COLORS[i]}22`,
             alignItems: 'center', justifyContent: 'center',
             borderWidth: 1.5, borderColor: RANK_COLORS[i],
+            boxShadow: i === 0 ? [{ offsetX: 0, offsetY: 0, blurRadius: 8, color: `${RANK_COLORS[i]}66` }] : [],
           }}>
             <Text style={{ color: RANK_COLORS[i], fontWeight: '900', fontSize: compact ? 8 : 10 }}>{RANK_LABEL[i]}</Text>
           </View>
 
           {/* 玩家信息 */}
           <View style={{ flex: 1 }}>
-            <Text style={{ color: '#fff', fontSize: compact ? 11 : 13, fontWeight: '700' }} numberOfLines={1}>
+            <Text style={{ color: i === 0 ? '#D4AF37' : '#fff', fontSize: compact ? 11 : 13, fontWeight: '700' }} numberOfLines={1}>
               {p?.nickname ?? `玩家 ${i + 1}`}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
               <Text style={{ fontSize: 9 }}>🪙</Text>
-              <Text style={{ color: 'rgba(255,193,7,0.75)', fontSize: compact ? 10 : 11 }}>
+              <Text style={{ color: 'rgba(212,175,55,0.8)', fontSize: compact ? 10 : 11 }}>
                 {p?.beans ?? (450 - i * 77)}
               </Text>
             </View>
@@ -656,13 +881,13 @@ function RankCard({ topPlayers, router, compact }: RankCardProps) {
 
       {/* 查看全部 */}
       <Pressable onPress={() => router.push('/(app)/leaderboard')}
-        style={{
-          marginTop: 4, borderRadius: 12, paddingVertical: 6,
+        style={({ pressed }) => ({
+          marginTop: 4, borderRadius: 12, paddingVertical: 7,
           alignItems: 'center',
-          backgroundColor: 'rgba(255,193,7,0.1)',
-          borderWidth: 1, borderColor: 'rgba(255,193,7,0.2)',
-        }}>
-        <Text style={{ color: 'rgba(255,215,0,0.7)', fontSize: 11, fontWeight: '600' }}>查看全部 →</Text>
+          backgroundColor: pressed ? 'rgba(212,175,55,0.18)' : 'rgba(212,175,55,0.08)',
+          borderWidth: 1, borderColor: 'rgba(212,175,55,0.25)',
+        })}>
+        <Text style={{ color: 'rgba(212,175,55,0.8)', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>查看全部 →</Text>
       </Pressable>
     </View>
   );
@@ -674,24 +899,33 @@ function GameModal({ visible, title, onClose, children }: {
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade">
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.82)' }}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.85)' }}>
         <View style={{
-          width: 320, borderRadius: 20, padding: 24,
-          backgroundColor: '#0e0218',
-          borderWidth: 1.5, borderColor: 'rgba(255,193,7,0.35)',
-          boxShadow: [{ offsetX: 0, offsetY: 0, blurRadius: 40, color: 'rgba(255,100,0,0.2)' }],
+          width: 320, borderRadius: 24, padding: 24,
+          backgroundColor: '#08041a',
+          borderWidth: 1.5, borderColor: 'rgba(212,175,55,0.4)',
+          boxShadow: [
+            { offsetX: 0, offsetY: 0, blurRadius: 40, color: 'rgba(212,175,55,0.2)' },
+            { offsetX: 0, offsetY: 0, blurRadius: 80, color: 'rgba(200,50,50,0.12)' },
+          ],
         }}>
           {/* 标题栏 */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 18 }}>
-            <Text style={{ flex: 1, color: '#FFD700', fontWeight: '800', fontSize: 17, textAlign: 'center', letterSpacing: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+            <Text style={{ flex: 1, color: '#D4AF37', fontWeight: '800', fontSize: 17, textAlign: 'center', letterSpacing: 2 }}>
               {title}
             </Text>
             <Pressable onPress={onClose}
-              style={{ position: 'absolute', right: 0, width: 28, height: 28, borderRadius: 14,
-                backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 14 }}>✕</Text>
+              style={({ pressed }) => ({
+                position: 'absolute', right: 0, width: 30, height: 30, borderRadius: 15,
+                backgroundColor: pressed ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.07)',
+                alignItems: 'center', justifyContent: 'center',
+                borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+              })}>
+              <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 14 }}>✕</Text>
             </Pressable>
           </View>
+          {/* 分割线 */}
+          <View style={{ height: 1, backgroundColor: 'rgba(212,175,55,0.15)', marginBottom: 18 }} />
           {children}
         </View>
       </View>
@@ -706,15 +940,19 @@ function ActionBtn({ label, loading, onPress }: {
   return (
     <Pressable onPress={onPress} disabled={loading}
       style={({ pressed }) => ({
-        borderRadius: 14, paddingVertical: 15,
+        borderRadius: 16, paddingVertical: 15,
         alignItems: 'center',
-        backgroundColor: pressed ? '#b8860b' : '#DAA520',
+        backgroundColor: pressed ? '#a88010' : '#c8960e',
         opacity: loading ? 0.7 : 1,
-        boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 16, color: 'rgba(218,165,32,0.5)' }],
+        boxShadow: [
+          { offsetX: 0, offsetY: 5, blurRadius: 18, color: 'rgba(212,175,55,0.55)' },
+          { offsetX: 0, offsetY: 0, blurRadius: 8, color: 'rgba(212,175,55,0.3)' },
+        ],
+        borderWidth: 1.5, borderColor: 'rgba(255,220,100,0.5)',
       })}>
       {loading
         ? <ActivityIndicator color="#000" />
-        : <Text style={{ color: '#000', fontWeight: '900', fontSize: 16, letterSpacing: 1 }}>{label}</Text>
+        : <Text style={{ color: '#000', fontWeight: '900', fontSize: 16, letterSpacing: 2 }}>{label}</Text>
       }
     </Pressable>
   );
